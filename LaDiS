@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>長方形透明介質板側向位移模擬器</title>
+
+    <!-- LAteral DIsplacement Simulator -->
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- KaTeX 用於渲染數學公式 (保留給滑塊標籤使用) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+
+    <style>
+        /* 全局樣式設定 */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+            color: #1e293b;
+        }
+        
+        /* 卡片容器樣式 - 增加陰影和圓角 */
+        .card {
+            background-color: #ffffff;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            transition: box-shadow 0.3s ease;
+        }
+        .card:hover {
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+
+        /* 畫布樣式 */
+        canvas {
+            border-radius: 0.75rem;
+            background-color: #ffffff;
+            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05);
+            border: 1px solid #e2e8f0;
+            width: 100%;
+            height: auto;
+            max-height: 70vh;
+            aspect-ratio: 16 / 9;
+        }
+
+        /* 自定義滑塊 (Range Slider) 樣式 */
+        .range-slider {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 6px;
+            background: #e2e8f0;
+            outline: none;
+            border-radius: 9999px;
+            cursor: pointer;
+        }
+        /* 滑塊按鈕樣式 (Webkit) */
+        .range-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #4f46e5; 
+            border: 2px solid #ffffff;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: transform 0.1s;
+        }
+        .range-slider::-webkit-slider-thumb:hover {
+            transform: scale(1.1);
+        }
+        /* 滑塊按鈕樣式 (Firefox) */
+        .range-slider::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #4f46e5;
+            border: 2px solid #ffffff;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: transform 0.1s;
+        }
+
+        /* KaTeX 字體大小調整 */
+        .katex { font-size: 1.1em; }
+    </style>
+</head>
+<body class="p-4 md:p-8 min-h-screen flex flex-col items-center">
+    
+    <div class="w-full max-w-5xl">
+        <!-- 標題區域 -->
+        <div class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-extrabold text-slate-800 tracking-tight">
+                長方形透明介質板側向位移
+            </h1>
+        </div>
+
+        <!-- 主內容區域 (畫布) -->
+        <div class="card p-1 md:p-6 mb-8 overflow-hidden">
+            <div class="w-full relative rounded-xl overflow-hidden bg-slate-50 border border-slate-100">
+                <canvas id="simCanvas" width="800" height="450"></canvas>
+            </div>
+        </div>
+
+        <!-- 控制區域 (滑塊) -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+            
+            <!-- 控制項 1: 入射角 -->
+            <div class="card p-6 border border-slate-100">
+                <div class="flex justify-between items-center mb-4">
+                    <label for="angle-slider" class="text-sm font-bold text-slate-700">入射角 ($i$)</label>
+                    <div class="flex items-center">
+                        <span id="angle-limit-msg" class="text-xs text-rose-500 font-medium mr-2 hidden bg-rose-50 px-2 py-1 rounded-full">受厚度限制</span>
+                        <span id="angle-value" class="text-lg font-bold text-indigo-600 bg-indigo-50 px-3 py-1 rounded-lg tabular-nums">60°</span>
+                    </div>
+                </div>
+                <input type="range" id="angle-slider" min="0" max="80" step="1" value="60" class="range-slider">
+            </div>
+
+            <!-- 控制項 2: 折射率 -->
+            <div class="card p-6 border border-slate-100">
+                <div class="flex justify-between items-center mb-4">
+                    <label for="n2-slider" class="text-sm font-bold text-slate-700">折射率 ($n$)</label>
+                    <span id="n2-value" class="text-lg font-bold text-indigo-600 bg-indigo-50 px-3 py-1 rounded-lg tabular-nums">1.52</span>
+                </div>
+                <input type="range" id="n2-slider" min="1.05" max="3.0" step="0.01" value="1.52" class="range-slider">
+            </div>
+
+            <!-- 控制項 3: 厚度 -->
+            <div class="card p-6 border border-slate-100">
+                <div class="flex justify-between items-center mb-4">
+                    <label for="thickness-slider" class="text-sm font-bold text-slate-700">介質板厚度 ($t$)</label>
+                    <span id="thickness-value" class="text-lg font-bold text-indigo-600 bg-indigo-50 px-3 py-1 rounded-lg tabular-nums">6.0 cm</span>
+                </div>
+                <input type="range" id="thickness-slider" min="1.0" max="10.0" step="0.1" value="6.0" class="range-slider">
+            </div>
+        </div>
+
+        <!-- 頁尾 -->
+        <footer class="text-center pb-8 pt-4 border-t border-slate-200">
+            <p class="text-slate-500 font-bold text-sm tracking-wide">
+                廠商會中學：物理科
+            </p>
+        </footer>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- 初始化 KaTeX (渲染 HTML 中的數學符號) ---
+            if (window.renderMathInElement) {
+                renderMathInElement(document.body, {
+                    delimiters: [
+                        {left: '$$', right: '$$', display: true},
+                        {left: '$', right: '$', display: false}
+                    ],
+                    throwOnError: false
+                });
+            }
+
+            // --- 獲取 DOM 元素 ---
+            const canvas = document.getElementById('simCanvas');
+            const ctx = canvas.getContext('2d');
+            const angleSlider = document.getElementById('angle-slider');
+            const n2Slider = document.getElementById('n2-slider');
+            const thicknessSlider = document.getElementById('thickness-slider');
+            const angleValue = document.getElementById('angle-value');
+            const angleLimitMsg = document.getElementById('angle-limit-msg');
+            const n2Value = document.getElementById('n2-value');
+            const thicknessValue = document.getElementById('thickness-value');
+
+            // --- 模擬參數設定 ---
+            const PIXELS_PER_CM = 35; // 比例尺：35 像素 = 1 公分
+            
+            // 字體設定
+            const SYMBOL_FONT = 'italic bold 22px "Times New Roman", serif'; // 符號用斜體襯線字
+            const LABEL_FONT = 'bold 15px Inter, sans-serif'; // 標籤用無襯線字
+            const RESULT_FONT = 'bold 14px Inter, sans-serif';
+
+            // 物理變量
+            let n1 = 1.0; // 空氣折射率
+            let slabHeight = parseFloat(thicknessSlider.value) * PIXELS_PER_CM; // 介質板像素高度
+            let n2 = parseFloat(n2Slider.value); // 介質折射率
+            let incidenceAngle_deg = parseFloat(angleSlider.value); // 入射角 (度)
+
+            // 畫布尺寸與佈局
+            const CANVAS_WIDTH = canvas.width;
+            const CANVAS_HEIGHT = canvas.height;
+            const SLAB_Y_CENTER = CANVAS_HEIGHT / 2;
+            const SLAB_X = CANVAS_WIDTH * 0.15; // 介質板左邊緣位置
+            const SLAB_WIDTH = CANVAS_WIDTH * 0.7; // 介質板寬度
+            
+            const X_INCIDENCE = SLAB_X + 80; // 入射點 X 座標 (固定)
+
+            // --- 顏色設定 ---
+            const RAY_COLOR = '#dc2626'; // 光線顏色 (紅色)
+            const EXT_RAY_COLOR = '#fca5a5'; // 延長線顏色 (淺紅)
+            const DISPLACEMENT_COLOR = '#4338ca'; // 位移標記顏色 (靛藍)
+            const NORMAL_COLOR = '#94a3b8'; // 法線顏色 (灰色)
+            const SLAB_BORDER_COLOR = '#0891b2'; // 介質板邊框 (青色)
+            const SLAB_FILL_COLOR = 'rgba(224, 242, 254, 0.5)'; // 介質板填充 (淺藍透明)
+
+            // --- 輔助函數 ---
+
+            // 角度轉換：度 -> 弧度
+            const toRadians = (deg) => deg * (Math.PI / 180);
+            // 角度轉換：弧度 -> 度
+            const toDegrees = (rad) => rad * (180 / Math.PI);
+
+            // 繪製線段
+            const drawLine = (x1, y1, x2, y2, color, width = 2, dashed = false) => {
+                ctx.beginPath();
+                ctx.strokeStyle = color;
+                ctx.lineWidth = width;
+                ctx.setLineDash(dashed ? [6, 4] : []);
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+            };
+
+            // 繪製箭頭
+            const drawArrowHead = (x, y, angleRad, color) => {
+                const size = 9; 
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                // 計算三角形的三個頂點
+                ctx.moveTo(x, y);
+                ctx.lineTo(x - size * Math.cos(angleRad - Math.PI / 6), y - size * Math.sin(angleRad - Math.PI / 6));
+                ctx.lineTo(x - size * Math.cos(angleRad + Math.PI / 6), y - size * Math.sin(angleRad + Math.PI / 6));
+                ctx.closePath();
+                ctx.fill();
+            };
+
+            // 繪製置中文字
+            const drawText = (text, x, y, align = 'center', color = '#334155', font = LABEL_FONT) => {
+                ctx.fillStyle = color;
+                ctx.font = font;
+                ctx.textAlign = align;
+                ctx.fillText(text, x, y);
+            }
+            
+            // 繪製圓角矩形 (用於結果框)
+            const drawRoundedRect = (x, y, width, height, radius, fillStyle, strokeStyle) => {
+                ctx.beginPath();
+                ctx.moveTo(x + radius, y);
+                ctx.lineTo(x + width - radius, y);
+                ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+                ctx.lineTo(x + width, y + height - radius);
+                ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+                ctx.lineTo(x + radius, y + height);
+                ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+                ctx.lineTo(x, y + radius);
+                ctx.quadraticCurveTo(x, y, x + radius, y);
+                ctx.closePath();
+                if (fillStyle) {
+                    ctx.fillStyle = fillStyle;
+                    ctx.fill();
+                }
+                if (strokeStyle) {
+                    ctx.strokeStyle = strokeStyle;
+                    ctx.stroke();
+                }
+            }
+
+            // --- 邏輯函數 ---
+
+            // 更新限制條件：防止光線從側面射出
+            const updateConstraints = () => {
+                // 計算光線觸及側壁的幾何極限
+                const maxDx = (SLAB_X + SLAB_WIDTH) - X_INCIDENCE;
+                const maxTanR = maxDx / slabHeight;
+                const maxThetaR = Math.atan(maxTanR);
+                // 根據斯涅爾定律反推最大入射角
+                const maxSinI = (n2 / n1) * Math.sin(maxThetaR);
+                
+                let maxAngle = 85; 
+                if (maxSinI < 1) {
+                    maxAngle = Math.floor(toDegrees(Math.asin(maxSinI)));
+                }
+
+                angleSlider.max = maxAngle;
+
+                // 顯示/隱藏警告訊息
+                if (maxAngle < 85) {
+                    angleLimitMsg.classList.remove('hidden');
+                } else {
+                    angleLimitMsg.classList.add('hidden');
+                }
+
+                // 若當前角度超過限制，則修正
+                if (incidenceAngle_deg > maxAngle) {
+                    incidenceAngle_deg = maxAngle;
+                    angleSlider.value = maxAngle;
+                    angleValue.innerText = `${maxAngle}°`;
+                    drawSimulation();
+                }
+            };
+
+            // 繪製介質板
+            const drawSlab = (Y_TOP, Y_BOTTOM) => {
+                ctx.fillStyle = SLAB_FILL_COLOR;
+                ctx.fillRect(SLAB_X, Y_TOP, SLAB_WIDTH, slabHeight);
+                ctx.strokeStyle = SLAB_BORDER_COLOR;
+                ctx.lineWidth = 2;
+                ctx.strokeRect(SLAB_X, Y_TOP, SLAB_WIDTH, slabHeight);
+                
+                // 在板內右上角繪製標籤
+                const labelX = SLAB_X + SLAB_WIDTH - 20;
+                const labelY = Y_TOP + 30;
+                drawText(`長方形透明介質板 (n = ${n2.toFixed(2)})`, labelX, labelY, 'right', '#0e7490', LABEL_FONT); 
+            };
+
+            // 繪製角度弧線
+            const drawAngleArc = (P, startAngle, endAngle, label, radius = 25) => {
+                ctx.beginPath();
+                ctx.strokeStyle = '#475569';
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([]);
+                ctx.arc(P.x, P.y, radius, startAngle, endAngle);
+                ctx.stroke();
+
+                const midAngle = (startAngle + endAngle) / 2;
+                const labelR = radius + 18;
+                const lx = P.x + labelR * Math.cos(midAngle);
+                const ly = P.y + labelR * Math.sin(midAngle);
+                
+                drawText(label, lx, ly + 5, 'center', '#1e293b', SYMBOL_FONT);
+            };
+
+            // 繪製結果框 (包含公式與數值)
+            const drawResultBox = (shift_cm) => {
+                const boxW = 290; 
+                const boxH = 90;
+                const boxX = CANVAS_WIDTH - boxW - 20;
+                const boxY = 20;
+
+                // 繪製背景框
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
+                ctx.shadowBlur = 10;
+                drawRoundedRect(boxX, boxY, boxW, boxH, 12, 'rgba(255, 255, 255, 0.95)', '#e0e7ff');
+                ctx.shadowColor = 'transparent'; 
+
+                // 標題構造: "側向位移 (d) 計算結果" 其中 d 為斜體
+                ctx.fillStyle = '#312e81'; 
+                ctx.textAlign = 'left';
+                
+                let titleX = boxX + 20;
+                const titleY = boxY + 25;
+
+                // 1. "側向位移 ("
+                ctx.font = 'bold 15px Inter, sans-serif';
+                ctx.fillText('側向位移 (', titleX, titleY);
+                titleX += ctx.measureText('側向位移 (').width;
+
+                // 2. "d" (斜體)
+                ctx.font = 'italic bold 18px "Times New Roman", serif'; 
+                ctx.fillText('d', titleX, titleY);
+                titleX += ctx.measureText('d').width;
+
+                // 3. ") 計算結果"
+                ctx.font = 'bold 15px Inter, sans-serif';
+                ctx.fillText(') 計算結果', titleX, titleY);
+
+
+                // 繪製公式
+                let currentX = boxX + 20;
+                const formulaY = boxY + 45;
+                ctx.fillStyle = '#4f46e5'; 
+                
+                const fontItalic = 'italic 18px "Times New Roman", serif';
+                const fontRoman = '18px "Times New Roman", serif';
+
+                const drawSeg = (text, isItalic) => {
+                    ctx.font = isItalic ? fontItalic : fontRoman;
+                    ctx.fillText(text, currentX, formulaY);
+                    currentX += ctx.measureText(text).width;
+                };
+
+                // 順序: d = t * sin(i - r) / cos(r)
+                drawSeg('d', true);
+                drawSeg(' = ', false);
+                drawSeg('t', true);
+                drawSeg(' · sin(', false);
+                drawSeg('i', true);
+                drawSeg(' - ', false);
+                drawSeg('r', true);
+                drawSeg(') / cos(', false);
+                drawSeg('r', true);
+                drawSeg(')', false);
+
+                // 繪製結果數值
+                ctx.fillStyle = '#4338ca'; 
+                ctx.font = 'bold 24px Inter, sans-serif';
+                ctx.textAlign = 'right';
+                ctx.fillText(`${shift_cm.toFixed(2)} cm`, boxX + boxW - 20, boxY + 70);
+            };
+
+            // 主繪圖循環
+            const drawSimulation = () => {
+                ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+                const Y_TOP = SLAB_Y_CENTER - slabHeight / 2;
+                const Y_BOTTOM = SLAB_Y_CENTER + slabHeight / 2;
+                
+                // 繪製空氣標籤
+                drawText('空氣', CANVAS_WIDTH / 2, Y_TOP - 25, 'center', '#64748b', LABEL_FONT);
+
+                drawSlab(Y_TOP, Y_BOTTOM);
+
+                const theta_i = toRadians(incidenceAngle_deg);
+                let theta_r = 0;
+                
+                // 計算折射角 (斯涅爾定律)
+                try {
+                    const sin_r = (n1 * Math.sin(theta_i)) / n2;
+                    theta_r = Math.asin(sin_r);
+                } catch(e) { theta_r = 0; }
+
+                // --- 計算關鍵點座標 ---
+                // P1: 入射點
+                const P1 = { x: X_INCIDENCE, y: Y_TOP };
+                const RAY_LEN = 200;
+                // P0: 光源起點
+                const P0 = {
+                    x: P1.x - RAY_LEN * Math.sin(theta_i),
+                    y: P1.y - RAY_LEN * Math.cos(theta_i)
+                };
+                // P2: 出射點 (折射後)
+                const P2 = {
+                    x: P1.x + slabHeight * Math.tan(theta_r),
+                    y: Y_BOTTOM
+                };
+                // P3: 出射光線終點
+                const P3 = {
+                    x: P2.x + RAY_LEN * Math.sin(theta_i),
+                    y: P2.y + RAY_LEN * Math.cos(theta_i)
+                };
+                // 虛擬延長線點
+                const P_EXT_X = P1.x + slabHeight * Math.tan(theta_i);
+                const P_EXT_FAR = {
+                    x: P_EXT_X + RAY_LEN * Math.sin(theta_i),
+                    y: Y_BOTTOM + RAY_LEN * Math.cos(theta_i)
+                };
+
+                // --- 繪製法線 ---
+                const NORMAL_LEN = 40;
+                drawLine(P1.x, P1.y - NORMAL_LEN, P1.x, P1.y + NORMAL_LEN, NORMAL_COLOR, 1.5, true); 
+                drawLine(P2.x, P2.y - NORMAL_LEN, P2.x, P2.y + NORMAL_LEN, NORMAL_COLOR, 1.5, true); 
+
+                // --- 繪製光線 ---
+                drawLine(P0.x, P0.y, P1.x, P1.y, RAY_COLOR, 3); // 入射光
+                drawLine(P1.x, P1.y, P2.x, P2.y, RAY_COLOR, 3); // 折射光
+                drawLine(P2.x, P2.y, P3.x, P3.y, RAY_COLOR, 3); // 出射光
+                drawLine(P1.x, P1.y, P_EXT_FAR.x, P_EXT_FAR.y, EXT_RAY_COLOR, 2, true); // 延長線
+                
+                // --- 繪製箭頭 ---
+                const midP0P1 = { x: (P0.x + P1.x) / 2, y: (P0.y + P1.y) / 2 };
+                const angleP0P1 = Math.atan2(P1.y - P0.y, P1.x - P0.x);
+                drawArrowHead(midP0P1.x, midP0P1.y, angleP0P1, RAY_COLOR);
+
+                const midP1P2 = { x: (P1.x + P2.x) / 2, y: (P1.y + P2.y) / 2 };
+                const angleP1P2 = Math.atan2(P2.y - P1.y, P2.x - P1.x);
+                drawArrowHead(midP1P2.x, midP1P2.y, angleP1P2, RAY_COLOR);
+
+                const midP2P3 = { x: (P2.x + P3.x) / 2, y: (P2.y + P3.y) / 2 };
+                const angleP2P3 = Math.atan2(P3.y - P2.y, P3.x - P2.x);
+                drawArrowHead(midP2P3.x, midP2P3.y, angleP2P3, RAY_COLOR);
+
+                // --- 繪製角度標示 ---
+                if (incidenceAngle_deg > 2) {
+                    drawAngleArc(P1, 1.5 * Math.PI - theta_i, 1.5 * Math.PI, 'i'); // 入射角
+                    drawAngleArc(P1, 0.5 * Math.PI - theta_r, 0.5 * Math.PI, 'r'); // 折射角
+                    drawAngleArc(P2, 0.5 * Math.PI - theta_i, 0.5 * Math.PI, 'e'); // 出射角
+                }
+
+                // --- 計算並繪製側向位移 (d) ---
+                const dx = Math.sin(theta_i);
+                const dy = Math.cos(theta_i);
+                
+                // 計算 P2 到延長線的垂足 D
+                const v12x = P2.x - P1.x;
+                const v12y = P2.y - P1.y;
+                const dot = v12x * dx + v12y * dy;
+                const D = {
+                    x: P1.x + dot * dx,
+                    y: P1.y + dot * dy
+                };
+
+                // 將測量線向外平移以免重疊
+                const measureOffset = 60; 
+                const P2_shifted = {
+                    x: P2.x + measureOffset * dx,
+                    y: P2.y + measureOffset * dy
+                };
+                const D_shifted = {
+                    x: D.x + measureOffset * dx,
+                    y: D.y + measureOffset * dy
+                };
+
+                // 繪製位移測量線結構
+                drawLine(P2.x, P2.y, P2_shifted.x, P2_shifted.y, DISPLACEMENT_COLOR, 1, true); // 輔助線
+                drawLine(D.x, D.y, D_shifted.x, D_shifted.y, DISPLACEMENT_COLOR, 1, true); // 輔助線
+                drawLine(P2_shifted.x, P2_shifted.y, D_shifted.x, D_shifted.y, DISPLACEMENT_COLOR, 2); // 主測量線
+
+                // 繪製兩端箭頭
+                const dimAngle = Math.atan2(D_shifted.y - P2_shifted.y, D_shifted.x - P2_shifted.x);
+                drawArrowHead(D_shifted.x, D_shifted.y, dimAngle, DISPLACEMENT_COLOR); 
+                drawArrowHead(P2_shifted.x, P2_shifted.y, dimAngle + Math.PI, DISPLACEMENT_COLOR); 
+
+                // 繪製標籤 'd' (帶白色背景)
+                const midX = (P2_shifted.x + D_shifted.x) / 2;
+                const midY = (P2_shifted.y + D_shifted.y) / 2;
+                
+                ctx.fillStyle = '#ffffff'; 
+                ctx.beginPath();
+                ctx.arc(midX, midY, 14, 0, 2 * Math.PI);
+                ctx.fill();
+
+                drawText('d', midX, midY + 6, 'center', DISPLACEMENT_COLOR, SYMBOL_FONT);
+
+                // --- 數值計算 ---
+                let shift_cm = 0;
+                let thickness_cm = slabHeight / PIXELS_PER_CM;
+
+                if (Math.cos(theta_r) !== 0) {
+                    shift_cm = (thickness_cm * Math.sin(theta_i - theta_r)) / Math.cos(theta_r);
+                }
+
+                // 繪製右上角結果框
+                drawResultBox(Math.abs(shift_cm));
+            };
+
+            // --- 事件監聽器 ---
+            angleSlider.addEventListener('input', (e) => {
+                incidenceAngle_deg = parseFloat(e.target.value);
+                angleValue.innerText = `${incidenceAngle_deg}°`;
+                drawSimulation();
+            });
+            n2Slider.addEventListener('input', (e) => {
+                n2 = parseFloat(e.target.value);
+                n2Value.innerText = n2.toFixed(2);
+                updateConstraints(); 
+                drawSimulation();
+            });
+            thicknessSlider.addEventListener('input', (e) => {
+                const cmValue = parseFloat(e.target.value);
+                slabHeight = cmValue * PIXELS_PER_CM;
+                thicknessValue.innerText = `${cmValue} cm`;
+                updateConstraints(); 
+                drawSimulation();
+            });
+
+            // 初始化
+            updateConstraints();
+            drawSimulation();
+        });
+    </script>
+</body>
+</html>
