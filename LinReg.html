@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>最佳擬合線計算器與繪圖器</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f4f4f4;
+            color: #333;
+            overflow-x: hidden; /* Prevent horizontal scroll */
+        }
+        .container {
+            background-color: #fff;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            max-width: 900px;
+            margin: auto;
+            box-sizing: border-box; /* Ensure padding is included in width */
+        }
+        h1, h2 {
+            color: #0056b3;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 10px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: center;
+            vertical-align: middle; /* Vertically center content in all table cells */
+        }
+        th {
+            background-color: #f2f2f2;
+            color: #555;
+            /* Style for italic and lowercase text in table headers */
+            font-style: italic;
+            text-transform: lowercase;
+        }
+       
+        /* 移除 WebKit 瀏覽器 (Chrome, Safari, Edge) 的微調按鈕 */
+        td input[type="number"]::-webkit-outer-spin-button,
+        td input[type="number"]::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+
+        td input[type="number"] {
+            /* 移除 Firefox 瀏覽器的微調按鈕 */
+            -moz-appearance: textfield;
+           
+            width: 80%;
+            padding: 0 5px; /* Vertical padding 0, horizontal 5px to rely on height */
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            box-sizing: border-box; /* Height includes padding and border */
+            text-align: center;
+            height: 30px; /* Consistent height for inputs */
+            line-height: 30px; /* Adjust line-height to vertically center text inside the input */
+            font-size: 1em; /* Ensure default font size */
+        }
+        .add-row-btn {
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 30px; /* Consistent width/height for roundness */
+            height: 30px; /* Consistent height for roundness */
+            font-size: 18px; /* Adjusted font size for better fit within the button */
+            line-height: 1; /* Ensures content sits tightly within the button's height */
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+            display: inline-flex; /* Allows centering within TD */
+            align-items: center; /* Vertically center the '+' */
+            justify-content: center; /* Horizontally center the '+' */
+            padding: 0; /* No internal padding on button, as height and width are fixed */
+        }
+        .add-row-btn:hover {
+            background-color: #218838;
+        }
+        .controls {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px; /* Spacing between button and checkbox */
+            margin-top: 20px;
+        }
+        button {
+            width: 200px;
+            padding: 12px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        .checkbox-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 1em;
+            color: #555;
+            cursor: pointer;
+        }
+        .checkbox-container input[type="checkbox"] {
+            /* Basic styling for checkbox */
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+
+        /* --- CHART RESPONSIVENESS --- */
+        #chartContainer {
+            width: 100%;
+            /* Maintain aspect ratio (1:1 for square) */
+            padding-bottom: 100%;
+            position: relative;
+            margin-left: auto;
+            margin-right: auto;
+            box-sizing: border-box;
+        }
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #fdfdfd;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+
+
+        /* Media Queries for responsive design */
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+            }
+        }
+        @media (max-width: 480px) {
+            .container {
+                padding: 15px;
+            }
+            h1 {
+                font-size: 1.5em;
+            }
+            .controls button {
+                width: 160px;
+                font-size: 14px;
+            }
+            th, td {
+                padding: 6px; /* Adjusted for smaller screens to save space */
+            }
+            td input[type="number"] {
+                font-size: 0.9em;
+                height: 28px; /* Slightly reduced height for mobile inputs */
+                line-height: 28px; /* Adjusted line-height for mobile font size */
+            }
+            /* Adjust button size for smaller screens to maintain consistency */
+            .add-row-btn {
+                width: 28px;
+                height: 28px;
+                font-size: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>最佳擬合線計算器與繪圖器</h1>
+
+        <p>請在下方輸入最多10組 (x, y) 座標。</p>
+
+        <div class="input-table-container">
+            <table id="coordinateInputTable">
+                <thead>
+                    <tr>
+                        <!-- Changed table headers to italic lowercase 'x' and 'y' -->
+                        <th>#</th>
+                        <th>x</th>
+                        <th>y</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Rows will be added here by JavaScript -->
+                    <!-- The add button row will be appended dynamically by JavaScript below initial rows -->
+                </tbody>
+            </table>
+        </div>
+
+        <div class="controls">
+            <!-- 核取方塊移到按鈕上方 -->
+            <label class="checkbox-container">
+                <input type="checkbox" id="forceOriginCheckbox">
+                強制直線通過原點 (y = mx)
+            </label>
+            <button onclick="calculateAndPlot()">計算並繪製</button>
+        </div>
+
+        <div id="chartContainer">
+            <canvas id="myChart"></canvas>
+        </div>
+    </div>
+
+    <script>
+        // Define constants for maximum coordinates and initial rows
+        const MAX_COORDINATES = 10;
+        const INITIAL_ROWS = 5;
+        let myChart; // Variable to hold the Chart.js instance
+
+
+        /**
+         * Formats a number for display in the regression equation.
+         * Uses scientific notation if |value| >= 1000 or |value| <= 0.001.
+         * Otherwise, uses 4 fixed decimal places.
+         * If scientific notation is used, the result is enclosed in parentheses () and uses uppercase E.
+         * @param {number} value The number to format.
+         * @returns {string} The formatted string (e.g., "(1.2345E-4)" or "12.3450").
+         */
+        function formatScientific(value) {
+            const absValue = Math.abs(value);
+            // Check if scientific notation is required
+            const isScientific = (absValue >= 1000 || (absValue > 0 && absValue <= 0.001));
+            let formattedValue;
+
+            if (isScientific) {
+                // Use scientific notation (4 significant digits) and convert 'e' to 'E'
+                formattedValue = value.toExponential(4).toUpperCase();
+            } else {
+                // Otherwise, use 4 fixed decimal places
+                formattedValue = value.toFixed(4);
+            }
+
+            // Enclose in parentheses if scientific notation was used
+            if (isScientific) {
+                return `(${formattedValue})`;
+            } else {
+                return formattedValue;
+            }
+        }
+
+
+        // Custom Chart.js Plugin for Axis Arrows and Labels
+        const axisArrowsPlugin = {
+            id: 'axisArrows',
+            afterDraw(chart, args, options) {
+                const { ctx, chartArea, scales: { x, y } } = chart;
+
+                ctx.save(); // Save the current canvas state
+                ctx.beginPath(); // Start a new path for drawing
+                ctx.lineWidth = 1.5; // Set line width
+                ctx.strokeStyle = '#666'; // Set line color
+                ctx.fillStyle = '#666'; // Set fill color for arrowheads
+
+                // Get pixel coordinates for the origin (0,0) on the chart
+                const originX = x.getPixelForValue(0);
+                const originY = y.getPixelForValue(0);
+
+                const arrowSize = 8; // Size of the arrowheads
+                const labelOffset = 5; // Offset for axis labels
+
+                // --- X-axis line (draws across the entire chart area) ---
+                // The line is drawn from the left edge to the right edge of the chartArea
+                // at the pixel position corresponding to y=0.
+                ctx.moveTo(chartArea.left, originY);
+                ctx.lineTo(chartArea.right, originY);
+                ctx.stroke();
+
+                // --- X-axis arrowhead (only at positive end - right) ---
+                ctx.beginPath();
+                ctx.moveTo(chartArea.right, originY);
+                ctx.lineTo(chartArea.right - arrowSize, originY - arrowSize / 2);
+                ctx.lineTo(chartArea.right - arrowSize, originY + arrowSize / 2);
+                ctx.closePath(); // Close the path to form a triangle
+                ctx.fill(); // Fill the arrowhead
+
+                // --- X-axis label "x" (italicized and lowercase) ---
+                ctx.font = 'italic bold 14px Arial'; // Set font for the label
+                ctx.textAlign = 'left'; // Align text to the left
+                ctx.textBaseline = 'middle'; // Align text baseline to the middle
+                // Draw 'x' slightly to the right of the right edge of the chart area, at y=0.
+                ctx.fillText('x', chartArea.right + labelOffset, originY);
+
+
+                // --- Y-axis line (draws across the entire chart area) ---
+                // The line is drawn from the bottom edge to the top edge of the chartArea
+                // at the pixel position corresponding to x=0.
+                ctx.moveTo(originX, chartArea.bottom);
+                ctx.lineTo(originX, chartArea.top);
+                ctx.stroke();
+
+                // --- Y-axis arrowhead (only at positive end - top) ---
+                ctx.beginPath();
+                ctx.moveTo(originX, chartArea.top);
+                ctx.lineTo(originX - arrowSize / 2, chartArea.top + arrowSize);
+                ctx.lineTo(originX + arrowSize / 2, chartArea.top + arrowSize);
+                ctx.closePath(); // Close the path to form a triangle
+                ctx.fill(); // Fill the arrowhead
+
+                // --- Y-axis label "y" (italicized and lowercase) ---
+                ctx.font = 'italic bold 14px Arial'; // Set font for the label
+                ctx.textAlign = 'center'; // Align text to the center
+                ctx.textBaseline = 'bottom'; // Align text baseline to the bottom
+                // Draw 'y' slightly above the top edge of the chart area, at x=0.
+                ctx.fillText('y', originX, chartArea.top - labelOffset);
+
+                ctx.restore(); // Restore the canvas state
+            }
+        };
+
+
+        // Custom Chart.js Plugin for displaying equation and R-squared
+        const equationAndRSquaredPlugin = {
+            id: 'equationAndRSquared',
+            afterDraw(chart) {
+                const { ctx, chartArea } = chart;
+                // Get custom options passed to the plugin
+                const pluginOptions = chart.options.plugins.customText;
+
+                // Only draw if m, b, and rSquared values are available
+                if (pluginOptions && pluginOptions.m !== undefined && pluginOptions.b !== undefined && pluginOptions.rSquared !== undefined) {
+                    const m = pluginOptions.m; // Slope (number)
+                    const b = pluginOptions.b; // Y-intercept (number)
+                    const rSquared = pluginOptions.rSquared; // R-squared value (number)
+
+                    // Format m and b using the updated formatScientific function
+                    const mFormatted = formatScientific(m);
+                    // b is only needed if not forced to 0
+                    const bFormatted = Math.abs(b) > 1e-9 ? formatScientific(Math.abs(b)) : '';
+
+                    ctx.save(); // Save the current canvas state
+                    ctx.fillStyle = '#333'; // Set text color
+
+                    // Calculate position for the text, adjusted to be within the padding area
+                    // Positioned near the top right of the chart area
+                    const textX = chartArea.right - 20; // 20 pixels from right edge
+                    const textY = chartArea.top + 20; // 20 pixels from top edge
+
+                    ctx.textBaseline = 'top'; // Align text baseline to the top
+
+                    // --- Draw Equation (y = mx + b or y = mx) ---
+                    // Define parts of the equation with their desired fonts
+                    const yPart = { text: 'y', font: 'italic bold 14px Arial' };
+                    const eqPart = { text: ' = ', font: 'bold 14px Arial' };
+                    const mValPart = { text: mFormatted, font: 'bold 14px Arial' }; // Formatted Slope value
+                    const xPart = { text: 'x', font: 'italic bold 14px Arial' };
+                   
+                    let equationParts = [yPart, eqPart, mValPart, xPart];
+
+                    // Only add the intercept part if b is not exactly 0
+                    if (Math.abs(b) > 1e-9) { // Use a small tolerance for floating point comparison with 0
+                        const bSignPart = { text: b >= 0 ? ' + ' : ' - ', font: 'bold 14px Arial' };
+                        const bAbsValPart = { text: bFormatted, font: 'bold 14px Arial' };
+                        equationParts.push(bSignPart, bAbsValPart);
+                    }
+
+
+                    // Measure the width of each part to calculate total equation width for alignment
+                    let totalEquationWidth = 0;
+                    let partWidths = [];
+
+                    for (const part of equationParts) {
+                        ctx.font = part.font;
+                        const width = ctx.measureText(part.text).width;
+                        partWidths.push(width);
+                        totalEquationWidth += width;
+                    }
+
+                    // Adjust starting X coordinate to right-align the equation
+                    let currentDrawX = textX - totalEquationWidth;
+
+                    ctx.textAlign = 'left'; // Ensure text is drawn from the left of currentDrawX
+
+                    // Draw each part of the equation sequentially
+                    for (let i = 0; i < equationParts.length; i++) {
+                        const part = equationParts[i];
+                        const width = partWidths[i];
+                        ctx.font = part.font;
+                        ctx.fillText(part.text, currentDrawX, textY);
+                        currentDrawX += width;
+                    }
+
+
+                    // --- Draw R-squared (R² = value) ---
+                    // Define parts of the R-squared string
+                    const rPart = { text: 'R', font: 'italic bold 14px Arial' };
+                    ctx.font = rPart.font;
+                    const rWidth = ctx.measureText(rPart.text).width;
+
+                    const superscript2Part = { text: '2', font: 'bold 9px Arial' }; // Superscript '2' for R-squared
+                    ctx.font = superscript2Part.font;
+                    const superscript2Width = ctx.measureText(superscript2Part.text).width;
+
+                    const rSquaredEqPart = { text: ' = ', font: 'bold 14px Arial' };
+                    ctx.font = rSquaredEqPart.font;
+                    const rSquaredEqWidth = ctx.measureText(rSquaredEqPart.text).width;
+
+                    const rSquaredValPart = { text: rSquared.toFixed(4), font: 'bold 14px Arial' }; // R-squared value
+                    ctx.font = rSquaredValPart.font;
+                    const rSquaredValWidth = ctx.measureText(rSquaredValPart.text).width;
+
+                    // Total width of the R-squared string
+                    const totalRSquaredWidth = rWidth + superscript2Width + rSquaredEqWidth + rSquaredValWidth;
+
+                    // Adjust starting X coordinate to right-align the R-squared text, below the equation
+                    let currentRSquaredDrawX = textX - totalRSquaredWidth;
+                    const rSquaredTextY = textY + 20; // 20 pixels below the equation
+
+                    ctx.textAlign = 'left';
+
+                    // Draw each part of the R-squared string sequentially
+                    ctx.font = rPart.font;
+                    ctx.fillText(rPart.text, currentRSquaredDrawX, rSquaredTextY);
+                    currentRSquaredDrawX += rWidth;
+
+                    ctx.font = superscript2Part.font;
+                    // Draw superscript '2' slightly higher
+                    ctx.fillText(superscript2Part.text, currentRSquaredDrawX, rSquaredTextY - 5);
+                    currentRSquaredDrawX += superscript2Width;
+
+                    ctx.font = rSquaredEqPart.font;
+                    ctx.fillText(rSquaredEqPart.text, currentRSquaredDrawX, rSquaredTextY);
+                    currentRSquaredDrawX += rSquaredEqWidth;
+
+                    ctx.font = rSquaredValPart.font;
+                    ctx.fillText(rSquaredValPart.text, currentRSquaredDrawX, rSquaredTextY);
+
+                    ctx.restore(); // Restore the canvas state
+                }
+            }
+        };
+
+
+        // Register the custom plugins with Chart.js
+        Chart.register(axisArrowsPlugin, equationAndRSquaredPlugin);
+
+        // Variable to track the current number of rows in the input table
+        let currentRowCount = 0;
+
+
+        /**
+         * Updates the visibility of the add row button based on currentRowCount.
+         */
+        function updateAddRowButtonVisibility() {
+            const buttonRow = document.getElementById('addRowButtonRow');
+            if (buttonRow) {
+                if (currentRowCount >= MAX_COORDINATES) {
+                    buttonRow.style.display = 'none'; // Hide the button row
+                } else {
+                    buttonRow.style.display = ''; // Show the button row
+                }
+            }
+        }
+
+        /**
+         * Adds keydown listener to disable arrow key adjustments for number inputs.
+         * @param {HTMLElement} inputElement The input element to add the listener to.
+         */
+        function disableArrowKeyAdjustments(inputElement) {
+            inputElement.addEventListener('keydown', function(event) {
+                // KeyCodes for Up Arrow (38) and Down Arrow (40)
+                if (event.keyCode === 38 || event.keyCode === 40) {
+                    event.preventDefault();
+                }
+            });
+        }
+
+
+        /**
+         * Adds a new row to the coordinate input table, up to MAX_COORDINATES.
+         */
+        function addRow() {
+            if (currentRowCount < MAX_COORDINATES) {
+                const tableBody = document.querySelector('#coordinateInputTable tbody');
+                const buttonRow = document.getElementById('addRowButtonRow'); // Get the button row
+                const row = document.createElement('tr');
+                const rowIndex = currentRowCount; // Capture index before incrementing currentRowCount
+
+                row.innerHTML = `
+                    <td>${rowIndex + 1}</td>
+                    <td><input type="number" class="x-input" id="x${rowIndex}" step="any"></td>
+                    <td><input type="number" class="y-input" id="y${rowIndex}" step="any"></td>
+                `;
+               
+                // Insert the new row before the button row if it exists, otherwise append
+                if (buttonRow) {
+                    tableBody.insertBefore(row, buttonRow);
+                } else {
+                    tableBody.appendChild(row);
+                }
+
+                // --- NEW CODE: Attach keydown listeners to the new input elements ---
+                const newXInput = document.getElementById(`x${rowIndex}`);
+                const newYInput = document.getElementById(`y${rowIndex}`);
+               
+                if (newXInput) {
+                    disableArrowKeyAdjustments(newXInput);
+                }
+                if (newYInput) {
+                    disableArrowKeyAdjustments(newYInput);
+                }
+                // --- END NEW CODE ---
+
+                currentRowCount++; // Increment the row count
+                updateAddRowButtonVisibility(); // Update button visibility after adding a row
+            } else {
+                // Display a custom message instead of alert()
+                const messageBox = document.createElement('div');
+                messageBox.style.cssText = `
+                    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                    background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;
+                    padding: 15px; border-radius: 5px; z-index: 1000; text-align: center;
+                    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+                `;
+                messageBox.innerHTML = `
+                    <p>已達到最大座標數（${MAX_COORDINATES}組）。</p>
+                    <button onclick="this.parentNode.remove()" style="background-color: #dc3545; color: white; border: none; padding: 8px 15px; border-radius: 3px; cursor: pointer; margin-top: 10px;">確定</button>
+                `;
+                document.body.appendChild(messageBox);
+            }
+        }
+
+
+        // --- IMPORTANT: Call addRow for initial rows when the DOM is loaded ---
+        // This ensures the table has initial input fields when the page loads.
+        document.addEventListener('DOMContentLoaded', function() {
+            const tableBody = document.querySelector('#coordinateInputTable tbody');
+            for (let i = 0; i < INITIAL_ROWS; i++) {
+                addRow();
+            }
+            // Add a dedicated row for the button at the bottom of the table
+            const buttonRow = document.createElement('tr');
+            buttonRow.id = 'addRowButtonRow'; // Add an ID to easily reference it
+            buttonRow.innerHTML = `
+                <td style="text-align: center;"><button class="add-row-btn" onclick="addRow()">+</button></td>
+                <td style="background-color: #e9ecef; pointer-events: none;"></td> <!-- Greyed out and disabled -->
+                <td style="background-color: #e9ecef; pointer-events: none;"></td> <!-- Greyed out and disabled -->
+            `;
+            tableBody.appendChild(buttonRow);
+            updateAddRowButtonVisibility(); // Initial check for button visibility
+        });
+
+
+        /**
+         * Calculates the best-fit line (linear regression) and plots it using Chart.js.
+         * Also calculates and displays the R-squared value.
+         */
+        function calculateAndPlot() {
+            const forceOrigin = document.getElementById('forceOriginCheckbox').checked;
+            let currentValidPairs = []; // Array to store valid (x, y) coordinate pairs
+
+            // Iterate through all existing rows to gather data
+            for (let i = 0; i < currentRowCount; i++) {
+                const xInput = document.getElementById(`x${i}`);
+                const yInput = document.getElementById(`y${i}`);
+
+                // Skip if input elements are not found
+                if (!xInput || !yInput) {
+                    console.error(`Input elements x${i} or y${i} not found. Skipping row.`);
+                    continue;
+                }
+
+                const xValueString = xInput.value.trim();
+                const yValueString = yInput.value.trim();
+
+                const x = parseFloat(xValueString);
+                const y = parseFloat(yValueString);
+
+                // Handle input validation:
+                if (xValueString === '' && yValueString === '') {
+                    // Do nothing, it's a null pair to be ignored
+                } else if ((!isNaN(x) && isNaN(y)) || (isNaN(x) && !isNaN(y))) {
+                    // Display a custom message instead of alert() for partial input
+                    const messageBox = document.createElement('div');
+                    messageBox.style.cssText = `
+                        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                        background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba;
+                        padding: 15px; border-radius: 5px; z-index: 1000; text-align: center;
+                        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+                    `;
+                    messageBox.innerHTML = `
+                        <p>請為座標對輸入X和Y值，或將兩者都留空。</p>
+                        <button onclick="this.parentNode.remove()" style="background-color: #ffc107; color: #333; border: none; padding: 8px 15px; border-radius: 3px; cursor: pointer; margin-top: 10px;">確定</button>
+                    `;
+                    document.body.appendChild(messageBox);
+                    return; // Stop calculation if validation fails
+                } else if (!isNaN(x) && !isNaN(y)) {
+                    currentValidPairs.push({ x: x, y: y });
+                }
+            }
+
+            // Repopulate inputs to bring valid data to the top
+            const tableBody = document.querySelector('#coordinateInputTable tbody');
+            if (tableBody) {
+                // Clear existing input values
+                for (let i = 0; i < currentRowCount; i++) {
+                    const xInput = document.getElementById(`x${i}`);
+                    const yInput = document.getElementById(`y${i}`);
+                    if (xInput && yInput) {
+                        xInput.value = '';
+                        yInput.value = '';
+                    }
+                }
+                // Repopulate with valid pairs at the top
+                for (let i = 0; i < currentValidPairs.length; i++) {
+                    const xInput = document.getElementById(`x${i}`);
+                    const yInput = document.getElementById(`y${i}`);
+                    if (xInput && yInput) {
+                        xInput.value = currentValidPairs[i].x;
+                        yInput.value = currentValidPairs[i].y;
+                    }
+                }
+            }
+
+            // Check if there are enough valid data points for regression
+            if (currentValidPairs.length < 2) {
+                const messageBox = document.createElement('div');
+                messageBox.style.cssText = `
+                    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                    background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;
+                    padding: 15px; border-radius: 5px; z-index: 1000; text-align: center;
+                    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+                `;
+                messageBox.innerHTML = `
+                    <p>至少需要兩組有效座標對才能計算最佳擬合線。</p>
+                    <button onclick="this.parentNode.remove()" style="background-color: #dc3545; color: white; border: none; padding: 8px 15px; border-radius: 3px; cursor: pointer; margin-top: 10px;">確定</button>
+                `;
+                document.body.appendChild(messageBox);
+
+                if (myChart) {
+                    myChart.destroy();
+                }
+                return; // Stop calculation
+            }
+
+
+            // Extract X and Y values into separate arrays
+            const xValues = currentValidPairs.map(p => p.x);
+            const yValues = currentValidPairs.map(p => p.y);
+
+            const n = xValues.length; // Number of data points
+            let sumX = 0;
+            let sumY = 0;
+            let sumXY = 0; // Sum of X * Y
+            let sumX2 = 0; // Sum of X^2
+            let sumY2 = 0; // Sum of Y^2 (needed for R-squared)
+
+            // Calculate sums
+            for (let i = 0; i < n; i++) {
+                sumX += xValues[i];
+                sumY += yValues[i];
+                sumXY += xValues[i] * yValues[i];
+                sumX2 += xValues[i] * xValues[i];
+                sumY2 += yValues[i] * yValues[i];
+            }
+
+
+            let m, b;
+            let rSquared;
+
+
+            if (forceOrigin) {
+                // --- Linear Regression Through the Origin (y = mx) ---
+                const originDenominator = sumX2; // Sum of X^2 for origin regression
+
+                if (originDenominator === 0) {
+                    const messageBox = document.createElement('div');
+                    messageBox.style.cssText = `
+                        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                        background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;
+                        padding: 15px; border-radius: 5px; z-index: 1000; text-align: center;
+                        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+                    `;
+                    messageBox.innerHTML = `
+                        <p>無法計算唯一的最佳擬合線（所有X值均為零）。</p>
+                        <button onclick="this.parentNode.remove()" style="background-color: #dc3545; color: white; border: none; padding: 8px 15px; border-radius: 3px; cursor: pointer; margin-top: 10px;">確定</button>
+                    `;
+                    document.body.appendChild(messageBox);
+
+                    if (myChart) {
+                        myChart.destroy();
+                    }
+                    return;
+                }
+               
+                m = sumXY / originDenominator; // Slope for y = mx
+                b = 0; // Y-intercept is forced to 0
+               
+            } else {
+                // --- Standard Linear Regression (y = mx + b) ---
+                const denominator = (n * sumX2) - (sumX * sumX);
+
+                if (denominator === 0) {
+                    const messageBox = document.createElement('div');
+                    messageBox.style.cssText = `
+                        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                        background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;
+                        padding: 15px; border-radius: 5px; z-index: 1000; text-align: center;
+                        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+                    `;
+                    messageBox.innerHTML = `
+                        <p>無法計算唯一的最佳擬合線（所有X值均相同）。</p>
+                        <button onclick="this.parentNode.remove()" style="background-color: #dc3545; color: white; border: none; padding: 8px 15px; border-radius: 3px; cursor: pointer; margin-top: 10px;">確定</button>
+                    `;
+                    document.body.appendChild(messageBox);
+
+                    if (myChart) {
+                        myChart.destroy();
+                    }
+                    return;
+                }
+
+                const numerator = (n * sumXY) - (sumX * sumY);
+                m = numerator / denominator; // Slope
+                b = (sumY - m * sumX) / n; // Y-intercept
+            }
+
+
+            // --- R-squared Calculation (using standard definition for consistency with UI) ---
+            let sumYSquared = 0; // Total sum of squares (SST)
+            const meanY = sumY / n;
+            for (let i = 0; i < n; i++) {
+                sumYSquared += (yValues[i] - meanY) * (yValues[i] - meanY);
+            }
+
+            let sumResidualSquared = 0; // Residual sum of squares (SSR)
+            for (let i = 0; i < n; i++) {
+                const yPredicted = m * xValues[i] + b;
+                sumResidualSquared += (yValues[i] - yPredicted) * (yValues[i] - yPredicted);
+            }
+
+            if (sumYSquared === 0) {
+                rSquared = (sumResidualSquared === 0) ? 1 : 0; // If residuals are also 0, perfect fit, otherwise 0
+            } else {
+                rSquared = 1 - (sumResidualSquared / sumYSquared);
+            }
+
+
+            const plotData = currentValidPairs; // Data points for the scatter plot
+
+            // Determine axis ranges ensuring 0 is always included and with a buffer
+            const allXCoords = [...xValues, 0]; // Include 0 for Y-axis (x=0)
+            const allYCoords = [...yValues, 0, b]; // Include 0 for X-axis (y=0) and the Y-intercept (b)
+
+            // Calculate x-intercept (when y = 0, so 0 = mx + b => x = -b/m)
+            let xIntercept = null;
+            if (m !== 0) { // Avoid division by zero for horizontal lines (m=0)
+                xIntercept = -b / m;
+                // Add x-intercept to allXCoords to ensure it's displayed
+                if (isFinite(xIntercept)) { // Ensure xIntercept is a finite number
+                    allXCoords.push(xIntercept);
+                }
+            } else if (b === 0) { // If m=0 and b=0, line is y=0 (X-axis)
+                // No specific X-intercept to highlight other than the axis itself
+            }
+
+
+            const minXData = Math.min(...allXCoords);
+            const maxXData = Math.max(...allXCoords);
+            const minYData = Math.min(...allYCoords);
+            const maxYData = Math.max(...allYCoords);
+
+            const xRange = maxXData - minXData;
+            const yRange = maxYData - minYData;
+
+            // Calculate buffer for padding the axes, ensuring at least 1 unit if range is 0
+            const xBuffer = xRange === 0 ? Math.abs(minXData) * 0.5 + 1 : xRange * 0.1;
+            const yBuffer = yRange === 0 ? Math.abs(minYData) * 0.5 + 1 : yRange * 0.1;
+
+            const xAxisMin = minXData - xBuffer;
+            const xAxisMax = maxXData + xBuffer;
+            const yAxisMin = minYData - yBuffer;
+            const yAxisMax = maxYData + yBuffer;
+
+            // Define points for the best-fit line, spanning the entire calculated X-axis range
+            const linePoints = [];
+            // Use the calculated min and max for the X-axis to ensure the line spans the full visible range
+            linePoints.push({ x: xAxisMin, y: m * xAxisMin + b });
+            linePoints.push({ x: xAxisMax, y: m * xAxisMax + b });
+            linePoints.sort((p1, p2) => p1.x - p2.x); // Ensure points are sorted by X for correct line drawing
+
+            // Destroy the existing chart instance if it exists before creating a new one
+            if (myChart) {
+                myChart.destroy();
+            }
+
+            const ctx = document.getElementById('myChart').getContext('2d');
+            if (!ctx) {
+                console.error("無法取得畫布的2D上下文。無法建立圖表。");
+                return;
+            }
+
+            // Create the new Chart.js instance
+            myChart = new Chart(ctx, {
+                type: 'scatter', // Start with scatter type for data points
+                data: {
+                    datasets: [{
+                        label: 'Data Points',
+                        data: plotData, // The actual (x, y) data points
+                        backgroundColor: 'rgba(75, 192, 192, 0.8)', // Color of data points
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        pointRadius: 6, // Size of data points
+                        pointHoverRadius: 8, // Size on hover
+                        pointStyle: 'crossRot', // Style of data points (rotated cross)
+                        pointBorderWidth: 2
+                    },
+                    {
+                        label: 'Best Fit Line',
+                        data: linePoints, // Points for the best-fit line
+                        type: 'line', // Specify this dataset as a line
+                        borderColor: 'rgba(255, 99, 132, 1)', // Color of the line
+                        backgroundColor: 'rgba(255, 99, 132, 0.2)', // Background color (not filled for lines)
+                        borderWidth: 2, // Line thickness
+                        fill: false, // Do not fill area under the line
+                        pointRadius: 0 // No points on the line itself
+                    }]
+                },
+                options: {
+                    responsive: true, // Chart will resize with its container
+                    maintainAspectRatio: false, // Allow chart to change aspect ratio for responsiveness
+                    layout: {
+                        padding: {
+                            // Add padding to ensure axis labels and custom text are visible
+                            right: 45,
+                            top: 45
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'linear', // Linear scale for X-axis
+                            position: 'bottom', // X-axis at the bottom
+                            title: {
+                                display: false, // Hide default axis title, custom one is drawn by plugin
+                            },
+                            min: xAxisMin, // Set minimum X-axis value
+                            max: xAxisMax, // Set maximum X-axis value
+                            ticks: {
+                                // Custom callback to hide ticks at the very start/end and label 0
+                                callback: function(value, index, ticks) {
+                                    if (value === 0) {
+                                        return '0';
+                                    }
+                                    if (index === 0 && value !== 0 || index === ticks.length - 1 && value !== 0) {
+                                        return ''; // Hide extreme ticks if not 0
+                                    }
+                                    return value;
+                                },
+                            },
+                            grid: {
+                                // You can customize grid lines here if needed
+                            }
+                        },
+                        y: {
+                            type: 'linear', // Linear scale for Y-axis
+                            title: {
+                                display: false, // Hide default axis title, custom one is drawn by plugin
+                            },
+                            min: yAxisMin, // Set minimum Y-axis value
+                            max: yAxisMax, // Set maximum Y-axis value
+                            ticks: {
+                                // Custom callback to hide ticks at the very start/end and label 0
+                                callback: function(value, index, ticks) {
+                                    if (value === 0) {
+                                        return '0';
+                                    }
+                                    if (index === 0 && value !== 0 || index === ticks.length - 1 && value !== 0) {
+                                        return ''; // Hide extreme ticks if not 0
+                                    }
+                                    return value;
+                                }
+                            },
+                            grid: {
+                                // You can customize grid lines here if needed
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false // Hide the legend as information is displayed via custom plugin
+                        },
+                        tooltip: {
+                            callbacks: {
+                                // Custom tooltip label for data points and line
+                                label: function(context) {
+                                    if (context.dataset.label === 'Data Points') {
+                                        return `(X: ${context.parsed.x}, Y: ${context.parsed.y})`;
+                                    } else {
+                                        return `最佳擬合線`; // Label for the line itself
+                                    }
+                                }
+                            }
+                        },
+                        // Pass calculated m, b, and rSquared to the custom plugin for display
+                        customText: {
+                            m: m,
+                            b: b,
+                            rSquared: rSquared
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
