@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>波動模擬器</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom Styles for Appearance and Responsiveness */
+        .container {
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            background-color: #f7f9fb;
+            min-height: 100vh;
+        }
+        canvas {
+            border: 2px solid #3b82f6; /* Blue border */
+            background-color: #ffffff;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            border-radius: 12px;
+            margin-bottom: 20px;
+            width: 90%; /* Responsive width */
+            max-width: 600px;
+            height: auto;
+            cursor: default; /* Default cursor */
+        }
+        canvas.draggable-cursor {
+            cursor: grab; /* Cursor when hovering over particle */
+        }
+        canvas.dragging-cursor {
+            cursor: grabbing; /* Cursor when dragging particle */
+        }
+        .controls, .info {
+            width: 90%;
+            max-width: 600px;
+            padding: 15px;
+            background-color: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            margin-bottom: 15px;
+        }
+        input[type="range"] {
+            width: 100%;
+            -webkit-appearance: none;
+            height: 8px;
+            background: #e0e7ff;
+            border-radius: 4px;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            background: #3b82f6;
+            cursor: pointer;
+            border-radius: 50%;
+            box-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+        }
+        /* Toggle switch styling */
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+        }
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            -webkit-transition: .4s;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            -webkit-transition: .4s;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: #3b82f6;
+        }
+        input:focus + .slider {
+            box-shadow: 0 0 1px #3b82f6;
+        }
+        input:checked + .slider:before {
+            -webkit-transform: translateX(26px);
+            -ms-transform: translateX(26px);
+            transform: translateX(26px);
+        }
+        .direction-label {
+            margin-left: 10px;
+            font-weight: bold;
+            color: #ef4444; /* Red for Left (Default) */
+        }
+        /* Style for Stationary label */
+        #waveTypeLabel {
+            font-weight: bold;
+        }
+        /* Utility class for hiding elements */
+        .hidden {
+            display: none !important;
+        }
+        /* Legend styling */
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-right: 15px;
+        }
+        .legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1 class="text-3xl font-extrabold text-gray-800 mb-6 mt-4">波動模擬器</h1>
+        <p class="text-gray-500 mb-6 text-center">拖曳紅色或綠色粒子，或點擊「停止」來分析波形。</p>
+
+        <!-- Canvas for the Wave Visualization --><canvas id="waveCanvas" width="600" height="200"></canvas>
+        
+        <!-- Legend for Stationary Wave -->
+        <div id="legendContainer" class="info text-sm text-gray-600 hidden">
+            <h4 class="font-semibold text-gray-700 mb-2">駐波標記圖例:</h4>
+            <div class="flex flex-wrap">
+                <div class="legend-item">
+                    <div class="legend-dot bg-red-500 border border-red-700"></div>
+                    <span>波節 (N)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-dot bg-green-500 border border-green-700"></div>
+                    <span>波腹 (A)</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls Area --><div class="controls space-y-4">
+            <h3 class="text-lg font-semibold text-gray-700 border-b pb-2 mb-4">波形參數</h3>
+
+            <!-- Amplitude Slider -->
+            <div class="control-group">
+                <label for="amplitudeSlider" class="text-sm font-medium text-gray-700 flex justify-between items-center">
+                    行波振幅 / 駐波波腹最大位移: 
+                    <span id="amplitudeValue" class="text-blue-600 font-bold">40</span> px
+                </label>
+                <input type="range" id="amplitudeSlider" min="10" max="80" step="5" value="40" oninput="updateSimulation()">
+            </div>
+
+            <!-- Frequency Slider -->
+            <div class="control-group">
+                <label for="frequencySlider" class="text-sm font-medium text-gray-700 flex justify-between items-center">
+                    頻率 : 
+                    <span id="frequencyValue" class="text-blue-600 font-bold">1.0</span> Hz
+                </label>
+                <input type="range" id="frequencySlider" min="0.5" max="5.0" step="0.1" value="1.0" oninput="updateSimulation()">
+            </div>
+
+            <!-- Wave Speed Slider -->
+            <div class="control-group">
+                <label for="speedSlider" class="text-sm font-medium text-gray-700 flex justify-between items-center">
+                    波速率 : 
+                    <span id="speedValue" class="text-blue-600 font-bold">50</span> px/s
+                </label>
+                <input type="range" id="speedSlider" min="10" max="200" step="1" value="50" oninput="updateSimulation()">
+            </div>
+            
+            <!-- Wave Type Switch: Traveling vs Stationary -->
+            <div class="control-group flex items-center justify-between pt-4 pb-2 border-t mt-4">
+                <span class="text-sm font-medium text-gray-700">波動類型:</span>
+                <label class="toggle-switch">
+                    <!-- Checkbox state: unchecked = Traveling, checked = Stationary --><input type="checkbox" id="waveTypeSwitch" onchange="updateSimulation()">
+                    <span class="slider"></span>
+                </label>
+                <span id="waveTypeLabel" style="color: #3b82f6;">行波</span>
+            </div>
+
+            <!-- Direction Switch (Visible only for Traveling Wave) -->
+            <div class="control-group flex items-center justify-center pt-2" id="directionControl">
+                <label class="toggle-switch">
+                    <input type="checkbox" id="directionSwitch" onchange="updateSimulation()">
+                    <span class="slider"></span>
+                </label>
+                <span id="directionLabel" class="direction-label text-lg">向左</span>
+            </div>
+
+            <!-- START/STOP Buttons -->
+            <div class="flex justify-center space-x-6 pt-4 border-t mt-4">
+                <button id="startButton" class="px-6 py-2 bg-green-500 text-white font-bold rounded-lg shadow-md hover:bg-green-600 transition disabled:opacity-50" onclick="startSimulation()">開始</button>
+                <button id="stopButton" class="px-6 py-2 bg-red-500 text-white font-bold rounded-lg shadow-md hover:bg-red-600 transition disabled:opacity-50" onclick="stopSimulation()">停止</button>
+            </div>
+        </div>
+
+        <!-- Information Area --><div class="info text-sm text-gray-600">
+            <p class="mb-2"><span class="font-semibold text-gray-700">波長 :</span> 
+                <span id="wavelengthValue" class="text-green-600 font-medium">50.0</span> px 
+            </p>
+            <p><span class="font-semibold text-gray-700">粒子 1 (紅) X:</span> <span id="particle1XValue">150</span> px (可拖曳)</p>
+            <p><span class="font-semibold text-gray-700">粒子 2 (綠) X:</span> <span id="particle2XValue">200</span> px (可拖曳)</p>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('waveCanvas');
+        const ctx = canvas.getContext('2d');
+        let amplitude = 40; 
+        let frequency = 1.0; 
+        let waveSpeed = 50;  
+        let waveDirection = -1; 
+        let isStationary = false; 
+
+        // --- Animation & Timing Control Variables ---
+        let animationFrameId = null;
+        let isPaused = false;
+        let totalSimulatedTimeMS = 0; // Total time the wave has run (for phase calculation)
+        let lastTimestamp = 0; // requestAnimationFrame's timestamp for delta time
+
+        // Particle variables for draggability
+        let particle1X = 150; 
+        let particle2X = 200; // New particle 2 X position
+        const particleRadius = 7;
+        const particleHitRadius = 15; 
+        let isDragging = false;
+        let draggingParticle = null; // To track which particle is being dragged (1 or 2)
+
+        let particle1Y_current = 0; 
+        let particle2Y_current = 0; // New particle 2 Y position
+
+        // --- Core Control Functions ---
+
+        function startSimulation() {
+            if (!isPaused) return;
+            
+            isPaused = false;
+            document.getElementById('startButton').disabled = true;
+            document.getElementById('stopButton').disabled = false;
+            
+            lastTimestamp = 0; 
+            
+            if (!animationFrameId) {
+                animationFrameId = requestAnimationFrame(drawWave);
+            }
+        }
+
+        function stopSimulation() {
+            if (isPaused) return;
+
+            isPaused = true;
+            document.getElementById('startButton').disabled = false;
+            document.getElementById('stopButton').disabled = true;
+
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+            }
+            drawWave(performance.now());
+        }
+
+        function updateSimulation() {
+            amplitude = parseFloat(document.getElementById('amplitudeSlider').value); 
+            frequency = parseFloat(document.getElementById('frequencySlider').value);
+            waveSpeed = parseFloat(document.getElementById('speedSlider').value);
+            isStationary = document.getElementById('waveTypeSwitch').checked;
+            
+            const directionControl = document.getElementById('directionControl');
+            const waveTypeLabel = document.getElementById('waveTypeLabel');
+            const directionSwitch = document.getElementById('directionSwitch');
+            const directionLabel = document.getElementById('directionLabel');
+            const legendContainer = document.getElementById('legendContainer');
+
+            if (isStationary) {
+                directionControl.classList.add('hidden');
+                legendContainer.classList.remove('hidden'); // Show legend
+                waveTypeLabel.textContent = '駐波'; // Stationary Wave (駐波)
+                waveTypeLabel.style.color = '#10b981'; 
+            } else {
+                directionControl.classList.remove('hidden');
+                legendContainer.classList.add('hidden'); // Hide legend
+                waveTypeLabel.textContent = '行波'; // Traveling Wave (行波)
+                waveTypeLabel.style.color = '#3b82f6'; 
+
+                const isMovingRight = directionSwitch.checked;
+                waveDirection = isMovingRight ? 1 : -1; 
+                directionLabel.textContent = isMovingRight ? '向右' : '向左'; // Right/Left
+                directionLabel.style.color = isMovingRight ? '#10b981' : '#ef4444';
+            }
+            
+            const wavelength = waveSpeed / frequency;
+
+            document.getElementById('amplitudeValue').textContent = amplitude; 
+            document.getElementById('frequencyValue').textContent = frequency.toFixed(1);
+            document.getElementById('speedValue').textContent = waveSpeed;
+            document.getElementById('wavelengthValue').textContent = wavelength.toFixed(1);
+            document.getElementById('particle1XValue').textContent = particle1X.toFixed(0);
+            document.getElementById('particle2XValue').textContent = particle2X.toFixed(0);
+
+
+            if (!isPaused) {
+                totalSimulatedTimeMS = 0; 
+                if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
+                }
+                lastTimestamp = 0; 
+                animationFrameId = requestAnimationFrame(drawWave);
+            } else {
+                drawWave(performance.now());
+            }
+        }
+
+        function drawWave(timestamp) {
+            if (!lastTimestamp) {
+                lastTimestamp = timestamp;
+            }
+            const deltaTime = timestamp - lastTimestamp; 
+            lastTimestamp = timestamp;
+
+            if (!isPaused) {
+                totalSimulatedTimeMS += deltaTime;
+            }
+
+            const currentTime = totalSimulatedTimeMS / 1000; 
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const angularFrequency = 2 * Math.PI * frequency; 
+            const wavelength = waveSpeed / frequency; 
+            const waveNumber = 2 * Math.PI / wavelength; 
+
+            const centerY = canvas.height / 2;
+            
+            // --- Draw Center Line ---
+            ctx.beginPath();
+            ctx.moveTo(0, centerY);
+            ctx.lineTo(canvas.width, centerY);
+            ctx.strokeStyle = '#ccc';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([]); // Ensure this line is solid
+            ctx.stroke();
+
+            // --- Draw Wave Form ---
+            ctx.beginPath();
+            let y_wave;
+
+            if (isStationary) {
+                const timeOscillation = Math.cos(angularFrequency * currentTime);
+
+                // --- Draw Node and Antinode Markers (Point 2) ---
+                const quarterWavelength = wavelength / 4;
+                
+                // Draw Markers
+                ctx.setLineDash([5, 5]); // Dotted line style
+
+                // Start from x=0 (which is a Node in this formula: sin(0)=0)
+                // Iterate by quarter wavelengths
+                for (let xPos = 0; xPos <= canvas.width + quarterWavelength; xPos += quarterWavelength) {
+                    if (xPos > canvas.width + 1) break; // Safety break
+                    
+                    // Determine if it's a Node (even index) or Antinode (odd index)
+                    const n = Math.round(xPos / quarterWavelength);
+
+                    // Skip the very first position if we are drawing the axis anyway, but here we draw it explicitly
+                    if (xPos >= 0 && xPos <= canvas.width) {
+                        ctx.beginPath();
+                        ctx.moveTo(xPos, 0);
+                        ctx.lineTo(xPos, canvas.height);
+
+                        if (n % 2 === 0) {
+                            // Node (x = 0, lambda/2, lambda, 3lambda/2, ...)
+                            ctx.strokeStyle = 'rgba(239, 68, 68, 0.4)'; // Red dotted line for Node
+                            ctx.lineWidth = 1.5;
+                        } else {
+                            // Antinode (x = lambda/4, 3lambda/4, 5lambda/4, ...)
+                            ctx.strokeStyle = 'rgba(16, 185, 129, 0.4)'; // Green dotted line for Antinode
+                            ctx.lineWidth = 1.5;
+                        }
+                        ctx.stroke();
+
+                        // Draw labels (small circle on center line)
+                        ctx.beginPath();
+                        ctx.arc(xPos, centerY, 3, 0, Math.PI * 2);
+                        ctx.fillStyle = (n % 2 === 0) ? '#ef4444' : '#10b981'; // Red/Green dot
+                        ctx.fill();
+                        ctx.stroke(); // Draw the border from the line stroke
+                    }
+                }
+                
+                ctx.setLineDash([]); // Reset line dash for the wave line
+
+                // --- Draw Stationary Wave Equation (Point 1 Preserved) ---
+                for (let x = 0; x < canvas.width; x++) {
+                    // Spatial Amplitude Term: A * sin(kx)
+                    const spatialAmplitude = amplitude * Math.sin(waveNumber * x);
+                    
+                    // Full Stationary Wave: (A * sin(kx)) * cos(omega*t)
+                    y_wave = centerY + spatialAmplitude * timeOscillation; 
+
+                    if (x === 0) {
+                        ctx.moveTo(x, y_wave);
+                    } else {
+                        ctx.lineTo(x, y_wave);
+                    }
+                }
+                
+                // Calculate particle positions based on the stationary wave formula
+                const spatialAmplitudeParticle1 = amplitude * Math.sin(waveNumber * particle1X);
+                particle1Y_current = centerY + spatialAmplitudeParticle1 * timeOscillation;
+                
+                const spatialAmplitudeParticle2 = amplitude * Math.sin(waveNumber * particle2X);
+                particle2Y_current = centerY + spatialAmplitudeParticle2 * timeOscillation;
+
+            } else {
+                // --- Draw Traveling Wave Equation ---
+                const waveArgumentMultiplier = -waveDirection; 
+                const phaseShift = angularFrequency * currentTime * waveArgumentMultiplier;
+
+                for (let x = 0; x < canvas.width; x++) {
+                    // Traveling Wave: A * sin(kx +/- omega*t)
+                    y_wave = centerY + amplitude * Math.sin(waveNumber * x + phaseShift);
+
+                    if (x === 0) {
+                        ctx.moveTo(x, y_wave);
+                    } else {
+                        ctx.lineTo(x, y_wave);
+                    }
+                }
+
+                // Calculate particle positions based on the traveling wave formula
+                particle1Y_current = centerY + amplitude * Math.sin(waveNumber * particle1X + phaseShift);
+                particle2Y_current = centerY + amplitude * Math.sin(waveNumber * particle2X + phaseShift);
+            }
+
+            // Apply style and stroke the main wave line
+            ctx.strokeStyle = '#3b82f6';
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            ctx.stroke();
+
+            // --- Draw Particle 1 (Red) ---
+            ctx.beginPath();
+            ctx.arc(particle1X, particle1Y_current, particleRadius, 0, Math.PI * 2, false); 
+            ctx.fillStyle = '#ef4444'; 
+            ctx.fill();
+            ctx.strokeStyle = '#b91c1c'; 
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // --- Draw Particle 2 (Green) ---
+            ctx.beginPath();
+            ctx.arc(particle2X, particle2Y_current, particleRadius, 0, Math.PI * 2, false); 
+            ctx.fillStyle = '#10b981'; // Green color
+            ctx.fill();
+            ctx.strokeStyle = '#047857'; // Darker green border
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            if (!isPaused) {
+                animationFrameId = requestAnimationFrame(drawWave);
+            }
+        }
+
+        // --- Draggable Particle Logic (Unchanged) ---
+        function getMousePos(canvas, evt) {
+            const rect = canvas.getBoundingClientRect();
+            return {
+                x: evt.clientX - rect.left,
+                y: evt.clientY - rect.top
+            };
+        }
+        function getTouchPos(canvas, evt) {
+            const rect = canvas.getBoundingClientRect();
+            if (evt.touches && evt.touches.length > 0) {
+                return {
+                    x: evt.touches[0].clientX - rect.left,
+                    y: evt.touches[0].clientY - rect.top
+                };
+            }
+            return { x: -1, y: -1 }; 
+        }
+
+        // Check if mouse is over *either* particle
+        function isMouseOverParticle(mouseX, mouseY) {
+            const dx1 = mouseX - particle1X;
+            const dy1 = mouseY - particle1Y_current; 
+            if (Math.sqrt(dx1 * dx1 + dy1 * dy1) < particleHitRadius) {
+                return 1; // Particle 1
+            }
+
+            const dx2 = mouseX - particle2X;
+            const dy2 = mouseY - particle2Y_current; 
+            if (Math.sqrt(dx2 * dx2 + dy2 * dy2) < particleHitRadius) {
+                return 2; // Particle 2
+            }
+            return 0; // No particle
+        }
+
+        canvas.addEventListener('mousedown', (e) => {
+            const mousePos = getMousePos(canvas, e);
+            draggingParticle = isMouseOverParticle(mousePos.x, mousePos.y);
+            if (draggingParticle !== 0) {
+                isDragging = true;
+                canvas.classList.add('dragging-cursor');
+            }
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            const mousePos = getMousePos(canvas, e);
+
+            if (isDragging && draggingParticle !== 0) {
+                const newX = Math.max(0, Math.min(canvas.width, mousePos.x));
+                if (draggingParticle === 1) {
+                    particle1X = newX;
+                    document.getElementById('particle1XValue').textContent = particle1X.toFixed(0);
+                } else if (draggingParticle === 2) {
+                    particle2X = newX;
+                    document.getElementById('particle2XValue').textContent = particle2X.toFixed(0);
+                }
+
+                if (isPaused) {
+                    drawWave(performance.now()); 
+                }
+
+            } else {
+                if (isMouseOverParticle(mousePos.x, mousePos.y) !== 0) {
+                    canvas.classList.add('draggable-cursor');
+                } else {
+                    canvas.classList.remove('draggable-cursor');
+                }
+            }
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            isDragging = false;
+            draggingParticle = null;
+            canvas.classList.remove('dragging-cursor');
+        });
+
+        canvas.addEventListener('mouseout', () => { 
+            isDragging = false;
+            draggingParticle = null;
+            canvas.classList.remove('dragging-cursor');
+        });
+
+        // --- Touch Events for Mobile (Unchanged) ---
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault(); 
+            const touchPos = getTouchPos(canvas, e);
+            draggingParticle = isMouseOverParticle(touchPos.x, touchPos.y);
+            if (draggingParticle !== 0) {
+                isDragging = true;
+                canvas.classList.add('dragging-cursor');
+            }
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault(); 
+            if (isDragging && draggingParticle !== 0) {
+                const touchPos = getTouchPos(canvas, e);
+                const newX = Math.max(0, Math.min(canvas.width, touchPos.x));
+                if (draggingParticle === 1) {
+                    particle1X = newX;
+                    document.getElementById('particle1XValue').textContent = particle1X.toFixed(0);
+                } else if (draggingParticle === 2) {
+                    particle2X = newX;
+                    document.getElementById('particle2XValue').textContent = particle2X.toFixed(0);
+                }
+
+                if (isPaused) {
+                    drawWave(performance.now());
+                }
+            }
+        });
+
+        canvas.addEventListener('touchend', () => {
+            isDragging = false;
+            draggingParticle = null;
+            canvas.classList.remove('dragging-cursor');
+        });
+
+
+        // Initialize and start the animation loop
+        window.onload = function () {
+            document.getElementById('startButton').disabled = true;
+            document.getElementById('stopButton').disabled = false;
+            isPaused = false; 
+            
+            updateSimulation(); 
+            animationFrameId = requestAnimationFrame(drawWave); 
+        }
+    </script>
+
+</body>
+</html>
