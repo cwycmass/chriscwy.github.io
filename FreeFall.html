@@ -21,10 +21,11 @@
             margin-bottom: 20px;
         }
 
+        /* UPDATED: Reduced width to allow easier scrolling on mobile */
         .video-tracking-area {
             position: relative;
-            width: 100%;
-            max-width: 640px; 
+            width: 95%; /* Leaves space on sides for scrolling */
+            max-width: 600px; /* Slightly reduced max width */
             margin: 20px auto;
             border-radius: 8px;
             box-shadow: 0 10px 25px rgba(0,0,0,0.15);
@@ -36,16 +37,16 @@
 
         #tracking-canvas {
             border: 3px solid #1e3a8a;
-            /* Hide default cursor when interacting, we draw our own magnifier */
-            cursor: none; 
+            cursor: crosshair;
+            display: block;
             background-color: #000;
+            /* Direct tracking interaction, scrolling is handled outside canvas */
             touch-action: none;
             
             display: block;
-            width: auto;
-            height: auto;
-            max-width: 100%;
-            /* Removed max-height constraint per request to allow scrolling */
+            width: auto;        
+            height: auto;       
+            max-width: 100%;    
         }
 
         #video-player {
@@ -131,6 +132,13 @@
             border-radius: 4px;
         }
         
+        /* Disabled input style */
+        input:disabled {
+            background-color: #e5e7eb;
+            color: #9ca3af;
+            cursor: not-allowed;
+        }
+        
         label {
             margin-right: 8px;
             margin-bottom: 10px;
@@ -197,13 +205,6 @@
             border-top: 1px solid #e5e7eb; 
         }
         
-        .keyboard-hint {
-            font-size: 0.8em;
-            color: #6b7280;
-            display: block;
-            margin-top: 5px;
-        }
-        
         /* Mobile Helper */
         .mobile-tip {
             display: none;
@@ -268,7 +269,10 @@
             <button id="prev-frame-btn" class="nav-btn" disabled>← 上一幀 (左箭頭)</button>
             <button id="next-frame-btn" class="nav-btn" disabled>下一幀 (右箭頭) →</button>
         </div>
+        <!-- Removed text hint here as requested -->
 
+        <!-- Removed text hint here as requested -->
+        
         <div style="display: flex; gap: 10px; margin-top: 10px;">
             <button id="undo-btn" disabled>移除當前幀標記</button>
             <!-- Feature 4: Clear Data Button -->
@@ -355,8 +359,9 @@
         let accelerationTimeChart = null; 
         let regressionCoeffs = [0, 0, 0]; 
 
-        // Hardcoded frame rate (As per previous successful version)
-        const FRAME_STEP = 1 / 30; 
+        // Initial Frame Rate
+        let frameRate = 30;
+        let frameStep = 1 / 30; 
         
         const DEFAULT_OPACITY = 0.6; 
         const TRACKING_DOT_COLOR = 'rgba(239, 68, 68, 0.6)'; 
@@ -391,6 +396,15 @@
         }
 
         // --- Utility Functions ---
+
+        // Helper to lock/unlock FPS input
+        const updateFPSLock = () => {
+            if (trackedData.length > 0) {
+                fpsInput.disabled = true;
+            } else {
+                fpsInput.disabled = false;
+            }
+        };
 
         const drawCurrentFrame = () => {
             if (videoPlayer.readyState < 2) return; 
@@ -427,12 +441,11 @@
                 drawMarker(p.x_px, p.y_px, TRACKING_DOT_COLOR, `t = ${p.time.toFixed(3)} s`, opacity);
             });
             
-            // Draw Drag Magnifier (Touch/Click dragging)
+            // Draw active drag crosshair (for tracking placement)
             if (dragTarget) {
                 drawMagnifier(dragTarget.x, dragTarget.y);
             } 
             // Draw Hover Magnifier (Mouse Hover)
-            // UPDATED: Now shows even if calibrating
             else if (hoverPos) {
                  drawMagnifier(hoverPos.x, hoverPos.y);
             }
@@ -445,7 +458,15 @@
             
             // Enable analysis buttons if we have enough data
             const hasData = trackedData.length > 0;
+            // Only allow clear data if there is data
             clearDataBtn.disabled = !hasData;
+            // Always allow undo/remove if we can go back OR remove something?
+            // Actually, if trackingData > 0, we can remove. 
+            // But we also want to allow "back" function even if no data on CURRENT frame.
+            // So disable undoBtn only if trackedData is empty AND we are at start? 
+            // Simplest: Enable undoBtn if trackedData > 0 OR video time > 0.
+            undoBtn.disabled = (trackedData.length === 0 && videoPlayer.currentTime <= 0.01);
+            
             exportBtn.disabled = !hasData;
         };
 
@@ -582,8 +603,13 @@
 
         // --- 1. Video Loading and Controls ---
 
+        // Update frameStep when input changes
         fpsInput.addEventListener('change', () => {
-            // Placeholder
+            const val = parseFloat(fpsInput.value);
+            if (val > 0) {
+                frameRate = val;
+                frameStep = 1 / frameRate;
+            }
         });
 
         document.getElementById('video-file-input').addEventListener('change', (event) => {
@@ -617,10 +643,21 @@
                     trackingCanvas.width = videoPlayer.videoWidth;
                     trackingCanvas.height = videoPlayer.videoHeight;
                     
+                    // Reset to default FPS on new video load? 
+                    // No, keep user preference or default 30.
+                    const val = parseFloat(fpsInput.value);
+                    if(val > 0) {
+                        frameRate = val;
+                        frameStep = 1 / frameRate;
+                    }
+
                     videoPlayer.currentTime = 0; 
                     videoPlayer.addEventListener('seeked', drawCurrentFrame, { once: true });
                     nextFrameBtn.disabled = false;
                     prevFrameBtn.disabled = true;
+                    
+                    // Unlock FPS input on new load
+                    updateFPSLock();
                 };
             }
         });
@@ -633,23 +670,23 @@
             if (videoPlayer.src) {
                 videoPlayer.pause();
                 const newTime = Math.max(0, videoPlayer.currentTime + step);
-                // Use fixed FRAME_STEP
-                videoPlayer.currentTime = parseFloat((Math.round(newTime / FRAME_STEP) * FRAME_STEP).toFixed(3));
+                // Use dynamic frameStep
+                videoPlayer.currentTime = parseFloat((Math.round(newTime / frameStep) * frameStep).toFixed(3));
                 videoPlayer.addEventListener('seeked', drawCurrentFrame, { once: true });
             }
         };
 
-        nextFrameBtn.addEventListener('click', () => advanceFrame(FRAME_STEP));
-        prevFrameBtn.addEventListener('click', () => advanceFrame(-FRAME_STEP));
+        nextFrameBtn.addEventListener('click', () => advanceFrame(frameStep));
+        prevFrameBtn.addEventListener('click', () => advanceFrame(-frameStep));
 
         document.addEventListener('keydown', (e) => {
             if (!videoPlayer.src) return;
             if (e.key === "ArrowRight") {
                 e.preventDefault(); 
-                advanceFrame(FRAME_STEP);
+                advanceFrame(frameStep);
             } else if (e.key === "ArrowLeft") {
                 e.preventDefault();
-                advanceFrame(-FRAME_STEP);
+                advanceFrame(-frameStep);
             }
         });
 
@@ -691,6 +728,11 @@
         const processPointSelection = (x, y) => {
             if (!videoPlayer.src) return;
             
+            // Check boundaries
+            if (x < 0 || x > trackingCanvas.width || y < 0 || y > trackingCanvas.height) {
+                return;
+            }
+
             if (isCalibrating) {
                 if (draggingCalibIndex !== -1) {
                     // Just finished dragging an existing point
@@ -706,7 +748,7 @@
                 // Tracking Mode
                 trackPosition(x, y);
                 // Auto-advance logic
-                setTimeout(() => advanceFrame(FRAME_STEP), 150);
+                setTimeout(() => advanceFrame(frameStep), 150);
             }
             drawCurrentFrame();
         };
@@ -857,7 +899,8 @@
                 trackedData.push(newPoint);
                 trackedData.sort((a, b) => a.time - b.time); 
             }
-            undoBtn.disabled = trackedData.length === 0;
+            // Update FPS lock status
+            updateFPSLock();
         };
 
 
@@ -890,6 +933,9 @@
                 resetClearButton();
                 clearDataBtn.disabled = true;
                 exportBtn.disabled = true;
+                
+                // Unlock FPS input
+                updateFPSLock();
             }
         });
 
@@ -900,21 +946,32 @@
         });
 
         undoBtn.addEventListener('click', () => {
-            if (trackedData.length > 0) {
-                const currentTime = videoPlayer.currentTime.toFixed(3);
-                const indexToRemove = trackedData.findIndex(p => p.time.toFixed(3) === currentTime);
-                if (indexToRemove !== -1) {
-                    trackedData.splice(indexToRemove, 1);
-                    calculateDerivedData(trackedData); 
-                    renderAllCharts(); 
-                } else {
-                    showMessage("當前畫面未找到可撤銷的追蹤點。");
-                }
-                drawCurrentFrame();
-                if (trackedData.length === 0) {
-                    undoBtn.disabled = true;
-                }
+            const currentTime = videoPlayer.currentTime.toFixed(3);
+            const indexToRemove = trackedData.findIndex(p => p.time.toFixed(3) === currentTime);
+
+            if (indexToRemove !== -1) {
+                // Case 1: Point exists in current frame -> Delete it
+                trackedData.splice(indexToRemove, 1);
+                calculateDerivedData(trackedData); 
+                renderAllCharts(); 
+                
+                // Also automatically go back 1 frame after deletion (as per requirement from previous turns)
+                // This creates a flow: Delete -> Go Back -> Ready to delete previous
+                advanceFrame(-frameStep);
+            } else {
+                // Case 2: No point in current frame -> Go back 1 frame (do not delete anything)
+                advanceFrame(-frameStep);
             }
+            
+            // Check if we emptied the data
+            if (trackedData.length === 0) {
+                undoBtn.disabled = true;
+                // If we went back to 0.000s and data is empty, undo is disabled.
+                // But logic is handled in drawCurrentFrame which is called by advanceFrame async
+            }
+            
+            // Update FPS lock status
+            updateFPSLock();
         });
 
         exportBtn.addEventListener('click', () => {
