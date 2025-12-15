@@ -224,11 +224,9 @@
 
     <div class="controls-container">
         <h2>1. 校準 (比例尺)</h2>
-        <label for="known-length-input">已知長度:</label>
+        <!-- Updated Label and removed Select -->
+        <label for="known-length-input">已知長度 (m):</label>
         <input type="number" id="known-length-input" value="1.0" min="0.01" inputmode="decimal">
-        <select id="unit-select">
-            <option value="m">米 (m)</option>
-        </select>
         <button id="calibrate-btn">開始校準</button>
         <p id="calibration-status" class="status-message">比例尺: 請載入影片並進行校準。</p>
         
@@ -240,7 +238,7 @@
             <button id="next-frame-btn" class="nav-btn" disabled>下一幀 (右箭頭) →</button>
         </div>
         
-        <p style="margin-top: 10px;">點擊畫面中的物體以標記其中心。每幀只允許一個點。</p>
+        <p style="margin-top: 10px;">點擊畫面中的物體以標記其中心。</p>
         
         <div style="display: flex; gap: 10px; margin-top: 10px;">
             <button id="undo-btn" disabled>移除當前幀標記</button>
@@ -466,10 +464,6 @@
             let sx = x - srcR;
             let sy = y - srcR;
 
-            // Optional: Clamp source to video boundaries to prevent drawing empty pixels
-            // However, drawImage generally handles out-of-bounds gracefully (draws nothing/transparent)
-            // But filling black background handles the visual aspect.
-            
             trackingCtx.fillStyle = 'black';
             trackingCtx.fill();
             
@@ -493,15 +487,48 @@
             trackingCtx.lineWidth = 1;
             trackingCtx.stroke();
 
-            trackingCtx.strokeStyle = '#3b82f6'; 
-            trackingCtx.lineWidth = 1;
+            // Draw Crosshair INSIDE the magnifier (High Contrast)
             const size = 10;
-
             trackingCtx.beginPath();
             trackingCtx.moveTo(x - size, y);
             trackingCtx.lineTo(x + size, y);
             trackingCtx.moveTo(x, y - size);
             trackingCtx.lineTo(x, y + size);
+            
+            // Outer black stroke
+            trackingCtx.strokeStyle = 'black'; 
+            trackingCtx.lineWidth = 3;
+            trackingCtx.stroke();
+
+            // Inner white stroke
+            trackingCtx.strokeStyle = 'white'; 
+            trackingCtx.lineWidth = 1;
+            trackingCtx.stroke();
+            
+            trackingCtx.restore();
+        };
+
+        const drawCrosshair = (x, y) => {
+            trackingCtx.save();
+            trackingCtx.globalAlpha = 1.0;
+            
+            const size = 20;
+
+            trackingCtx.beginPath();
+            trackingCtx.arc(x, y, 15, 0, Math.PI * 2);
+            trackingCtx.moveTo(x - size, y);
+            trackingCtx.lineTo(x + size, y);
+            trackingCtx.moveTo(x, y - size);
+            trackingCtx.lineTo(x, y + size);
+            
+            // Outer black stroke
+            trackingCtx.strokeStyle = 'black'; 
+            trackingCtx.lineWidth = 3;
+            trackingCtx.stroke();
+
+            // Inner white stroke
+            trackingCtx.strokeStyle = 'white'; 
+            trackingCtx.lineWidth = 1;
             trackingCtx.stroke();
             
             trackingCtx.restore();
@@ -513,14 +540,13 @@
             const p2 = calibrationPoints[1];
             const pixelDistance = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
             const knownLength = parseFloat(document.getElementById('known-length-input').value);
-            const unit = document.getElementById('unit-select').value;
+            const unit = 'm'; // Hardcoded unit
             
             if (pixelDistance > 0 && knownLength > 0) {
                 scaleFactor = knownLength / pixelDistance;
                 document.getElementById('calibration-status').textContent = 
                     `已校準: 1 像素 = ${scaleFactor.toFixed(4)} ${unit}。準備追蹤。`;
                 
-                // Improvement 1: Recalculate existing points if scale changes
                 recalculateAllPoints();
 
             } else {
@@ -593,6 +619,7 @@
             if (videoPlayer.src) {
                 videoPlayer.pause();
                 const newTime = Math.max(0, videoPlayer.currentTime + step);
+                // Use fixed FRAME_STEP
                 videoPlayer.currentTime = parseFloat((Math.round(newTime / FRAME_STEP) * FRAME_STEP).toFixed(3));
                 videoPlayer.addEventListener('seeked', drawCurrentFrame, { once: true });
             }
@@ -612,6 +639,9 @@
             }
         });
 
+
+        // --- 2. Spatial Calibration (Draggable Logic) ---
+
         calibrateBtn.addEventListener('click', () => {
             if (!videoPlayer.src) {
                 showMessage("請先載入影片。");
@@ -619,6 +649,7 @@
             }
 
             if (!isCalibrating) {
+                // START Calibration Mode
                 isCalibrating = true;
                 calibrationPoints = [];
                 scaleFactor = 0;
@@ -628,6 +659,7 @@
                 analyzeBtn.disabled = true;
                 drawCurrentFrame();
             } else {
+                // FINISH Calibration Mode
                 if (calibrationPoints.length === 2) {
                     calculateScale(); 
                     isCalibrating = false;
@@ -640,24 +672,31 @@
             }
         });
 
+        // --- 3. Position Tracking & Interaction Logic ---
+
         const processPointSelection = (x, y) => {
             if (!videoPlayer.src) return;
             
+            // Check boundaries
             if (x < 0 || x > trackingCanvas.width || y < 0 || y > trackingCanvas.height) {
                 return;
             }
 
             if (isCalibrating) {
                 if (draggingCalibIndex !== -1) {
+                    // Just finished dragging an existing point
                     calibrationPoints[draggingCalibIndex] = { x, y };
-                    draggingCalibIndex = -1; 
+                    draggingCalibIndex = -1; // Reset drag index
                 } else {
+                    // Creating new calibration point
                     if (calibrationPoints.length < 2) {
                          calibrationPoints.push({ x, y });
                     }
                 }
             } else {
+                // Tracking Mode
                 trackPosition(x, y);
+                // Auto-advance logic
                 setTimeout(() => advanceFrame(FRAME_STEP), 150);
             }
             drawCurrentFrame();
@@ -665,6 +704,7 @@
 
         const getEventPos = (e) => {
             const rect = trackingCanvas.getBoundingClientRect();
+            // Calculate scale factors
             const scaleX = trackingCanvas.width / rect.width;
             const scaleY = trackingCanvas.height / rect.height;
 
@@ -677,16 +717,19 @@
             };
         };
 
+        // Pointer Down (Start)
         const handleStart = (e) => {
             if (!videoPlayer.src) return;
-            e.preventDefault(); 
+            e.preventDefault(); // Prevent scrolling on touch
 
             const pos = getEventPos(e);
             
             if (isCalibrating) {
+                // Check if hitting an existing point to drag
                 draggingCalibIndex = -1;
                 for (let i = calibrationPoints.length - 1; i >= 0; i--) {
                     const p = calibrationPoints[i];
+                    // Adjust hit radius for scale
                     const rect = trackingCanvas.getBoundingClientRect();
                     const scaleX = trackingCanvas.width / rect.width;
                     const scaledHitRadius = HIT_RADIUS * scaleX; 
@@ -700,14 +743,18 @@
                     }
                 }
                 
+                // If not hitting existing, and we have space, start new point
                 if (draggingCalibIndex === -1 && calibrationPoints.length < 2) {
                     isDragging = true;
                 }
             } else {
+                // Tracking Mode
                 isDragging = true;
             }
             
             if (isDragging) {
+                 // Initial Crosshair Position
+                 // We always apply offset (Mouse or Touch) to keep logic unified and visibility good
                  const rect = trackingCanvas.getBoundingClientRect();
                  const scaleY = trackingCanvas.height / rect.height;
                  const offsetY = (e.type === 'touchstart') ? (TOUCH_OFFSET_Y * scaleY) : 0;
@@ -717,7 +764,9 @@
             }
         };
 
+        // Pointer Move
         const handleMove = (e) => {
+             // Handle Mouse Hover
              if (e.type === 'mousemove' && !isDragging) {
                  hoverPos = getEventPos(e);
                  drawCurrentFrame();
@@ -729,12 +778,14 @@
 
             const pos = getEventPos(e);
             
+            // Update Drag Target (Crosshair position)
             const rect = trackingCanvas.getBoundingClientRect();
             const scaleY = trackingCanvas.height / rect.height;
             const offsetY = (e.type === 'touchmove' || e.type === 'touchstart') ? (TOUCH_OFFSET_Y * scaleY) : 0;
                 
             dragTarget = { x: pos.x, y: pos.y - offsetY };
             
+            // If Calibrating and Dragging existing, update it live
             if (isCalibrating && draggingCalibIndex !== -1) {
                 calibrationPoints[draggingCalibIndex] = { x: dragTarget.x, y: dragTarget.y };
             }
@@ -742,15 +793,18 @@
             drawCurrentFrame();
         };
         
+        // Mouse out to clear hover
         trackingCanvas.addEventListener('mouseout', () => {
             hoverPos = null;
             drawCurrentFrame();
         });
 
+        // Pointer Up
         const handleEnd = (e) => {
             if (e.type === 'touchend') e.preventDefault();
             
             if (isDragging && dragTarget) {
+                // Commit the action at dragTarget
                 processPointSelection(dragTarget.x, dragTarget.y);
             }
             
@@ -759,6 +813,7 @@
             drawCurrentFrame();
         };
 
+        // Attach Events
         trackingCanvas.addEventListener('mousedown', handleStart);
         trackingCanvas.addEventListener('mousemove', handleMove);
         window.addEventListener('mouseup', () => { if(isDragging) handleEnd({ preventDefault: ()=>{} }); }); 
@@ -767,6 +822,7 @@
         trackingCanvas.addEventListener('touchmove', handleMove, { passive: false });
         trackingCanvas.addEventListener('touchend', handleEnd);
 
+        // Tracking Logic called by handleEnd
         const trackPosition = (x, y) => {
             if (scaleFactor === 0) {
                 showMessage("請在追蹤點數前先校準影片。");
@@ -796,7 +852,7 @@
         };
 
 
-        // Feature 4: Clear Data Function (Optimized with Timeout)
+        // Feature 4: Clear Data Function
         let clearConfirmState = false;
         let clearResetTimer = null; // Improvement 3: Timer
 
@@ -850,15 +906,19 @@
             const indexToRemove = trackedData.findIndex(p => p.time.toFixed(3) === currentTime);
 
             if (indexToRemove !== -1) {
+                // Case 1: Point exists in current frame -> Delete it
                 trackedData.splice(indexToRemove, 1);
                 calculateDerivedData(trackedData); 
                 renderAllCharts(); 
                 
+                // Go back one frame after deletion
                 advanceFrame(-FRAME_STEP);
             } else {
+                // Case 2: No point in current frame -> Just go back 1 frame
                 advanceFrame(-FRAME_STEP);
             }
             
+            // Check if we emptied the data
             if (trackedData.length === 0) {
                 undoBtn.disabled = true;
             }
@@ -867,7 +927,7 @@
         exportBtn.addEventListener('click', () => {
             if (trackedData.length === 0) return;
             calculateDerivedData(trackedData);
-            const unit = document.getElementById('unit-select').value;
+            const unit = 'm';
             let csvContent = "data:text/csv;charset=utf-8,";
             csvContent += "\uFEFF"; 
             csvContent += `時間 / s,垂直位置 / m\n`;
@@ -985,7 +1045,6 @@
                  return;
             }
 
-            const unit = document.getElementById('unit-select').value;
             const ctx = document.getElementById('position-time-chart').getContext('2d');
             const showRegression = regressionCheckbox.checked;
 
@@ -1031,10 +1090,10 @@
                     responsive: true,
                     maintainAspectRatio: false, 
                     scales: {
-                        x: { type: 'linear', position: 'bottom', title: { display: true, text: '時間 (s)', font: { size: 14 } }, min: minTime, max: maxTime },
-                        y: { title: { display: true, text: `位置 (${unit})`, font: { size: 14 } } }
+                        x: { type: 'linear', position: 'bottom', title: { display: true, text: '時間 / s', font: { size: 14 } }, min: minTime, max: maxTime },
+                        y: { title: { display: true, text: `位置 / m`, font: { size: 14 } } }
                     },
-                    plugins: { legend: { display: true }, tooltip: { callbacks: { label: function(context) { return `${context.dataset.label}: (t=${context.parsed.x.toFixed(3)} s, y=${context.parsed.y.toFixed(4)} ${unit})`; } } } }
+                    plugins: { legend: { display: true }, tooltip: { callbacks: { label: function(context) { return `${context.dataset.label}: (t=${context.parsed.x.toFixed(3)} s, y=${context.parsed.y.toFixed(4)} m)`; } } } }
                 }
             });
         };
@@ -1045,7 +1104,6 @@
                 return;
             }
 
-            const unit = document.getElementById('unit-select').value;
             const ctx = document.getElementById('velocity-time-chart').getContext('2d');
             const [A, B] = regressionCoeffs; 
 
@@ -1082,10 +1140,10 @@
                     responsive: true,
                     maintainAspectRatio: false, 
                     scales: {
-                        x: { type: 'linear', position: 'bottom', title: { display: true, text: '時間 (s)', font: { size: 14 } }, min: minTime, max: maxTime },
-                        y: { title: { display: true, text: `速度 (${unit}/s)`, font: { size: 14 } } }
+                        x: { type: 'linear', position: 'bottom', title: { display: true, text: '時間 / s', font: { size: 14 } }, min: minTime, max: maxTime },
+                        y: { title: { display: true, text: `速度 / m s⁻¹`, font: { size: 14 } } }
                     },
-                    plugins: { legend: { display: true } }
+                    plugins: { legend: { display: true }, tooltip: { callbacks: { label: function(context) { return `${context.dataset.label}: (t=${context.parsed.x.toFixed(3)} s, v=${context.parsed.y.toFixed(4)} m s⁻¹)`; } } } }
                 }
             });
         };
@@ -1096,7 +1154,6 @@
                 return;
             }
 
-            const unit = document.getElementById('unit-select').value;
             const ctx = document.getElementById('acceleration-time-chart').getContext('2d');
             const [A] = regressionCoeffs;
             const accelerationValue = 2 * A;
@@ -1127,10 +1184,10 @@
                     responsive: true,
                     maintainAspectRatio: false, 
                     scales: {
-                        x: { type: 'linear', position: 'bottom', title: { display: true, text: '時間 (s)', font: { size: 14 } }, min: minTime, max: maxTime },
-                        y: { title: { display: true, text: `加速度 (${unit}/s²)`, font: { size: 14 } } }
+                        x: { type: 'linear', position: 'bottom', title: { display: true, text: '時間 / s', font: { size: 14 } }, min: minTime, max: maxTime },
+                        y: { title: { display: true, text: `加速度 / m s⁻²`, font: { size: 14 } } }
                     },
-                    plugins: { legend: { display: true } }
+                    plugins: { legend: { display: true }, tooltip: { callbacks: { label: function(context) { return `${context.dataset.label}: (t=${context.parsed.x.toFixed(3)} s, a=${context.parsed.y.toFixed(4)} m s⁻²)`; } } } }
                 }
             });
         };
@@ -1158,7 +1215,7 @@
             }
             trackedData.sort((a, b) => a.time - b.time); 
             calculateDerivedData(trackedData);
-            const unit = document.getElementById('unit-select').value;
+            const unit = 'm'; // Hardcoded
             let output = `時間 / s\t垂直位置 / m\n`;
             output += "--------------------------------\n";
             for (let i = 0; i < trackedData.length; i++) {
