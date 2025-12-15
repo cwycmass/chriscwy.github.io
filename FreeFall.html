@@ -23,20 +23,35 @@
 
         .video-tracking-area {
             position: relative;
-            width: 640px;
+            width: 100%;
+            max-width: 640px; 
             margin: 20px auto;
             border-radius: 8px;
             box-shadow: 0 10px 25px rgba(0,0,0,0.15);
             overflow: hidden;
+            background-color: #000;
+            display: flex;
+            justify-content: center;
         }
 
         #tracking-canvas {
             border: 3px solid #1e3a8a;
-            cursor: crosshair;
-            display: block;
+            /* Hide default cursor when interacting, we draw our own magnifier */
+            cursor: none; 
             background-color: #000;
-            /* CRITICAL: Prevents page scrolling while dragging on canvas */
-            touch-action: none; 
+            touch-action: none;
+            
+            display: block;
+            width: auto;
+            height: auto;
+            max-width: 100%;
+            /* Removed max-height constraint per request to allow scrolling */
+        }
+
+        #video-player {
+            width: 100%;
+            height: auto;
+            display: none !important;
         }
 
         .controls-container {
@@ -107,7 +122,7 @@
         button.btn-success:hover {
             background-color: #059669;
         }
-
+        
         input[type="file"], input[type="number"], select { 
             padding: 8px;
             margin-right: 8px;
@@ -166,10 +181,6 @@
             gap: 20px;
         }
 
-        #video-player { 
-            display: none !important; 
-        }
-
         .controls-container > div {
             margin-bottom: 10px;
         }
@@ -192,11 +203,29 @@
             display: block;
             margin-top: 5px;
         }
+        
+        /* Mobile Helper */
+        .mobile-tip {
+            display: none;
+            background-color: #fff3cd;
+            color: #856404;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            font-size: 0.9em;
+        }
+        @media (max-width: 768px) {
+            .mobile-tip { display: block; }
+        }
     </style>
 </head>
 <body>
     <h1>垂直自由落體運動分析</h1>
     <p>上傳物體下落的影片片段，校準比例尺，並逐幀標記物體位置以產生運動圖表。</p>
+
+    <div class="mobile-tip">
+        📱 <strong>手機用戶提示：</strong> 影片區域支援直接觸控拖曳標記點。如需捲動頁面，請在影片區域外滑動。
+    </div>
 
     <div class="controls-container">
         <!-- Video Loading -->
@@ -239,10 +268,7 @@
             <button id="prev-frame-btn" class="nav-btn" disabled>← 上一幀 (左箭頭)</button>
             <button id="next-frame-btn" class="nav-btn" disabled>下一幀 (右箭頭) →</button>
         </div>
-        <span class="keyboard-hint">提示：您可以使用鍵盤的 ← 左箭頭 和 → 右箭頭 鍵來切換幀。平板用戶可長按拖曳以精確定位。</span>
 
-        <p style="margin-top: 10px;">點擊畫面中的物體以標記其中心。每幀只允許一個點。</p>
-        
         <div style="display: flex; gap: 10px; margin-top: 10px;">
             <button id="undo-btn" disabled>移除當前幀標記</button>
             <!-- Feature 4: Clear Data Button -->
@@ -341,9 +367,16 @@
         let isDragging = false;
         let dragTarget = null; // {x, y} for crosshair (tracking)
         
+        // Hover position for magnifier
+        let hoverPos = null;
+
         // Calibration Dragging Variables
         let draggingCalibIndex = -1; // -1 means none
-        const HIT_RADIUS = 20; // Pixels
+        const HIT_RADIUS = 30; // Increased Hit Radius for easier grabbing
+        
+        // Magnifier Constants
+        const MAGNIFIER_RADIUS = 50; // Slightly larger for better visibility
+        const MAGNIFIER_ZOOM = 2;
 
         function showMessage(message) {
             console.warn("User Message Box: " + message);
@@ -369,7 +402,6 @@
 
             // Draw Calibration
             if (calibrationPoints.length > 0) {
-                // Draw Line if we have 2 points
                 if (calibrationPoints.length === 2) {
                     const p1 = calibrationPoints[0];
                     const p2 = calibrationPoints[1];
@@ -383,7 +415,6 @@
                     trackingCtx.restore();
                 }
 
-                // Draw points
                 calibrationPoints.forEach((p, idx) => {
                     const label = `校準點${idx + 1}`;
                     drawMarker(p.x, p.y, CALIBRATION_COLOR_BASE, label, DEFAULT_OPACITY);
@@ -396,9 +427,14 @@
                 drawMarker(p.x_px, p.y_px, TRACKING_DOT_COLOR, `t = ${p.time.toFixed(3)} s`, opacity);
             });
             
-            // Draw active drag crosshair (for tracking placement)
-            if (dragTarget && !isCalibrating) {
-                drawCrosshair(dragTarget.x, dragTarget.y);
+            // Draw Drag Magnifier (Touch/Click dragging)
+            if (dragTarget) {
+                drawMagnifier(dragTarget.x, dragTarget.y);
+            } 
+            // Draw Hover Magnifier (Mouse Hover)
+            // UPDATED: Now shows even if calibrating
+            else if (hoverPos) {
+                 drawMagnifier(hoverPos.x, hoverPos.y);
             }
 
             const formattedTime = videoPlayer.currentTime.toFixed(3);
@@ -446,24 +482,66 @@
             trackingCtx.restore();
         };
         
-        const drawCrosshair = (x, y) => {
+        // Magnifier drawing function (Centered)
+        const drawMagnifier = (x, y) => {
             trackingCtx.save();
+            
+            // Draw magnification
+            // Clip region for the magnifier circle
+            trackingCtx.beginPath();
+            trackingCtx.arc(x, y, MAGNIFIER_RADIUS, 0, Math.PI * 2);
+            trackingCtx.closePath();
+            
+            // Save state for clipping
+            trackingCtx.save();
+            trackingCtx.clip();
+            
+            // Draw the zoomed image
+            const srcR = MAGNIFIER_RADIUS / MAGNIFIER_ZOOM;
+            const srcD = srcR * 2;
+            const destD = MAGNIFIER_RADIUS * 2;
+            
+            // Fill background black first
+            trackingCtx.fillStyle = 'black';
+            trackingCtx.fill();
+            
+            try {
+                // Draw Video Frame (Scaled up)
+                trackingCtx.drawImage(
+                    videoPlayer, 
+                    x - srcR, y - srcR, srcD, srcD, // Source rect
+                    x - MAGNIFIER_RADIUS, y - MAGNIFIER_RADIUS, destD, destD // Dest rect
+                );
+            } catch (e) {
+                // Ignore errors
+            }
+            
+            trackingCtx.restore();
+
+            // Draw Magnifier Border
             trackingCtx.globalAlpha = 1.0;
+            trackingCtx.strokeStyle = '#fff';
+            trackingCtx.lineWidth = 3;
+            trackingCtx.stroke(); 
+            trackingCtx.strokeStyle = '#3b82f6'; 
+            trackingCtx.lineWidth = 1;
+            trackingCtx.stroke();
+
+            // Draw Crosshair INSIDE the magnifier
             trackingCtx.strokeStyle = '#3b82f6'; // Blue
-            trackingCtx.lineWidth = 2;
-            const size = 20;
+            trackingCtx.lineWidth = 1;
+            const size = 10;
 
             trackingCtx.beginPath();
-            trackingCtx.arc(x, y, 15, 0, Math.PI * 2);
             trackingCtx.moveTo(x - size, y);
             trackingCtx.lineTo(x + size, y);
             trackingCtx.moveTo(x, y - size);
             trackingCtx.lineTo(x, y + size);
             trackingCtx.stroke();
+            
             trackingCtx.restore();
         };
 
-        // Added: Moved calculateScale here to be accessible by advanceFrame
         const calculateScale = () => {
             if (calibrationPoints.length < 2) return;
             const p1 = calibrationPoints[0];
@@ -482,7 +560,6 @@
             }
         };
 
-        // Added: Helper to exit calibration mode automatically
         const exitCalibrationMode = () => {
             if (!isCalibrating) return;
             
@@ -490,25 +567,23 @@
             calibrateBtn.classList.remove('btn-success');
             
             if (calibrationPoints.length === 2) {
-                // If we have 2 points, assume the user accepts them
                 calculateScale();
                 calibrateBtn.textContent = '重新校準';
                 analyzeBtn.disabled = false;
             } else {
-                // Incomplete calibration - Reset
                 calibrationPoints = [];
                 scaleFactor = 0;
                 calibrateBtn.textContent = '開始校準';
                 document.getElementById('calibration-status').textContent = '校準已取消 (切換幀)。';
             }
-            drawCurrentFrame(); // Redraw to remove temp markers if any
+            drawCurrentFrame(); 
         };
 
 
         // --- 1. Video Loading and Controls ---
 
         fpsInput.addEventListener('change', () => {
-            // No dynamic update needed for hardcoded version, but placeholder if logic returns
+            // Placeholder
         });
 
         document.getElementById('video-file-input').addEventListener('change', (event) => {
@@ -538,16 +613,10 @@
 
                 videoPlayer.onloadedmetadata = () => {
                     const aspect = videoPlayer.videoHeight / videoPlayer.videoWidth;
-                    const width = 640;
-                    const height = width * aspect;
-
-                    trackingCanvas.width = width;
-                    trackingCanvas.height = height;
-                    videoPlayer.width = width;
-                    videoPlayer.height = height;
                     
-                    document.querySelector('.video-tracking-area').style.width = `${width}px`;
-
+                    trackingCanvas.width = videoPlayer.videoWidth;
+                    trackingCanvas.height = videoPlayer.videoHeight;
+                    
                     videoPlayer.currentTime = 0; 
                     videoPlayer.addEventListener('seeked', drawCurrentFrame, { once: true });
                     nextFrameBtn.disabled = false;
@@ -557,7 +626,6 @@
         });
         
         const advanceFrame = (step) => {
-            // Automatically end calibration if user navigates frames
             if (isCalibrating) {
                 exitCalibrationMode();
             }
@@ -588,16 +656,6 @@
 
         // --- 2. Spatial Calibration (Draggable Logic) ---
 
-        document.getElementById('calibrate-btn').addEventListener('click', () => {
-            if (!videoPlayer.src) {
-                showMessage("請先載入影片。");
-                return;
-            }
-            
-            // This is handled by the below calibrateBtn logic, removing redundant
-        });
-
-        // Updated calibrateBtn logic to use the hoisted calculateScale
         calibrateBtn.addEventListener('click', () => {
             if (!videoPlayer.src) {
                 showMessage("請先載入影片。");
@@ -610,14 +668,14 @@
                 calibrationPoints = [];
                 scaleFactor = 0;
                 calibrateBtn.textContent = '完成校準';
-                calibrateBtn.classList.add('btn-success'); // Visual feedback
+                calibrateBtn.classList.add('btn-success'); 
                 document.getElementById('calibration-status').textContent = '校準模式: 點擊兩點，可拖曳調整。完成後點擊「完成校準」。';
                 analyzeBtn.disabled = true;
                 drawCurrentFrame();
             } else {
                 // FINISH Calibration Mode
                 if (calibrationPoints.length === 2) {
-                    calculateScale(); // Ensure scale is set
+                    calculateScale(); 
                     isCalibrating = false;
                     calibrateBtn.textContent = '重新校準';
                     calibrateBtn.classList.remove('btn-success');
@@ -628,117 +686,146 @@
             }
         });
 
-        // --- 3. Position Tracking & Canvas Interaction ---
+        // --- 3. Position Tracking & Interaction Logic ---
 
-        // Central logic for processing a point selection (click or touch-release)
         const processPointSelection = (x, y) => {
             if (!videoPlayer.src) return;
-
+            
             if (isCalibrating) {
-                calibrationPoints.push({ x: x, y: y });
-                drawMarker(x, y, (calibrationPoints.length === 1) ? 'rgba(255, 204, 0, 1.0)' : CALIBRATION_COLOR_BASE, `校準點${calibrationPoints.length}`);
-                
-                if (calibrationPoints.length === 2) {
-                    finalizeCalibration();
+                if (draggingCalibIndex !== -1) {
+                    // Just finished dragging an existing point
+                    calibrationPoints[draggingCalibIndex] = { x, y };
+                    draggingCalibIndex = -1; // Reset drag index
+                } else {
+                    // Creating new calibration point
+                    if (calibrationPoints.length < 2) {
+                         calibrationPoints.push({ x, y });
+                    }
                 }
             } else {
+                // Tracking Mode
                 trackPosition(x, y);
+                // Auto-advance logic
+                setTimeout(() => advanceFrame(FRAME_STEP), 150);
             }
+            drawCurrentFrame();
         };
 
         const getEventPos = (e) => {
             const rect = trackingCanvas.getBoundingClientRect();
-            // Handle touch vs mouse
+            // Calculate scale factors
+            const scaleX = trackingCanvas.width / rect.width;
+            const scaleY = trackingCanvas.height / rect.height;
+
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            
             return {
-                x: clientX - rect.left,
-                y: clientY - rect.top
+                x: (clientX - rect.left) * scaleX,
+                y: (clientY - rect.top) * scaleY
             };
         };
 
-        // Pointer Down (Mouse & Touch Start)
+        // Pointer Down (Start)
         const handleStart = (e) => {
             if (!videoPlayer.src) return;
-            
-            // Only prevent default on touch to stop scrolling
-            if (e.type === 'touchstart') e.preventDefault();
+            e.preventDefault(); // Prevent scrolling on touch
 
             const pos = getEventPos(e);
-
+            
             if (isCalibrating) {
-                // Check if hitting an existing point
+                // Check if hitting an existing point to drag
                 draggingCalibIndex = -1;
-                for (let i = 0; i < calibrationPoints.length; i++) {
+                for (let i = calibrationPoints.length - 1; i >= 0; i--) {
                     const p = calibrationPoints[i];
+                    // Adjust hit radius for scale
+                    const rect = trackingCanvas.getBoundingClientRect();
+                    const scaleX = trackingCanvas.width / rect.width;
+                    const scaledHitRadius = HIT_RADIUS * scaleX; 
+
                     const dist = Math.sqrt(Math.pow(pos.x - p.x, 2) + Math.pow(pos.y - p.y, 2));
-                    if (dist < HIT_RADIUS) {
+                    
+                    if (dist < scaledHitRadius) {
                         draggingCalibIndex = i;
                         isDragging = true;
-                        return; // Found a point to drag, stop here
+                        break; 
                     }
                 }
                 
-                // If not hitting existing, and we have < 2 points, add one
-                if (calibrationPoints.length < 2) {
-                    calibrationPoints.push({ x: pos.x, y: pos.y });
-                    calculateScale(); // Update visual line immediately
-                    drawCurrentFrame();
+                // If not hitting existing, and we have space, start new point
+                if (draggingCalibIndex === -1 && calibrationPoints.length < 2) {
+                    isDragging = true;
                 }
             } else {
-                // Tracking Mode: Handle crosshair dragging
+                // Tracking Mode
                 isDragging = true;
-                if (e.type === 'touchstart') {
-                    // Offset for touch
-                    dragTarget = { x: pos.x, y: pos.y - TOUCH_OFFSET_Y };
-                } else {
-                    // No offset for mouse usually, or minimal
-                    dragTarget = { x: pos.x, y: pos.y };
-                }
-                drawCurrentFrame();
+            }
+            
+            if (isDragging) {
+                 // Initial Crosshair Position
+                 // We always apply offset (Mouse or Touch) to keep logic unified and visibility good
+                 const rect = trackingCanvas.getBoundingClientRect();
+                 const scaleY = trackingCanvas.height / rect.height;
+                 const offsetY = (e.type === 'touchstart') ? (TOUCH_OFFSET_Y * scaleY) : 0;
+                 
+                 dragTarget = { x: pos.x, y: pos.y - offsetY };
+                 drawCurrentFrame();
             }
         };
 
         // Pointer Move
         const handleMove = (e) => {
-            if (!isDragging && !isCalibrating) return;
-            if (e.type === 'touchmove') e.preventDefault();
+             // Handle Mouse Hover
+             if (e.type === 'mousemove' && !isDragging) {
+                 hoverPos = getEventPos(e);
+                 drawCurrentFrame();
+                 return;
+             }
+            
+            if (!isDragging) return;
+            e.preventDefault();
 
             const pos = getEventPos(e);
-
+            
+            // Update Drag Target (Crosshair position)
+            const rect = trackingCanvas.getBoundingClientRect();
+            const scaleY = trackingCanvas.height / rect.height;
+            const offsetY = (e.type === 'touchmove' || e.type === 'touchstart') ? (TOUCH_OFFSET_Y * scaleY) : 0;
+                
+            dragTarget = { x: pos.x, y: pos.y - offsetY };
+            
+            // If Calibrating and Dragging existing, update it live
             if (isCalibrating && draggingCalibIndex !== -1) {
-                // Dragging calibration point
-                calibrationPoints[draggingCalibIndex] = { x: pos.x, y: pos.y };
-                calculateScale();
-                drawCurrentFrame();
-            } else if (!isCalibrating && isDragging) {
-                // Dragging tracking crosshair
-                const offsetY = (e.type === 'touchmove') ? TOUCH_OFFSET_Y : 0;
-                dragTarget = { x: pos.x, y: pos.y - offsetY };
-                drawCurrentFrame();
+                calibrationPoints[draggingCalibIndex] = { x: dragTarget.x, y: dragTarget.y };
             }
+
+            drawCurrentFrame();
         };
+        
+        // Mouse out to clear hover
+        trackingCanvas.addEventListener('mouseout', () => {
+            hoverPos = null;
+            drawCurrentFrame();
+        });
 
         // Pointer Up
         const handleEnd = (e) => {
             if (e.type === 'touchend') e.preventDefault();
             
-            if (isCalibrating) {
-                draggingCalibIndex = -1;
-            } else if (isDragging && dragTarget) {
-                // Commit tracking point
-                trackPosition(dragTarget.x, dragTarget.y);
-                dragTarget = null;
+            if (isDragging && dragTarget) {
+                // Commit the action at dragTarget
+                processPointSelection(dragTarget.x, dragTarget.y);
             }
             
             isDragging = false;
+            dragTarget = null;
             drawCurrentFrame();
         };
 
         // Attach Events
         trackingCanvas.addEventListener('mousedown', handleStart);
         trackingCanvas.addEventListener('mousemove', handleMove);
-        window.addEventListener('mouseup', () => { if(isDragging) handleEnd({}); }); // Global up for mouse
+        window.addEventListener('mouseup', () => { if(isDragging) handleEnd({ preventDefault: ()=>{} }); }); 
 
         trackingCanvas.addEventListener('touchstart', handleStart, { passive: false });
         trackingCanvas.addEventListener('touchmove', handleMove, { passive: false });
@@ -774,9 +861,8 @@
         };
 
 
-        // Feature 4: Clear Data Function (Redesigned)
+        // Feature 4: Clear Data Function
         let clearConfirmState = false;
-
         const resetClearButton = () => {
             clearConfirmState = false;
             clearDataBtn.textContent = '清除所有數據';
@@ -786,7 +872,6 @@
 
         clearDataBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-
             if (!clearConfirmState) {
                 clearConfirmState = true;
                 clearDataBtn.textContent = '確定清除?';
@@ -797,14 +882,11 @@
                 if (positionTimeChart) { positionTimeChart.destroy(); positionTimeChart = null; }
                 if (velocityTimeChart) { velocityTimeChart.destroy(); velocityTimeChart = null; }
                 if (accelerationTimeChart) { accelerationTimeChart.destroy(); accelerationTimeChart = null; }
-                
                 document.getElementById('analysis-output').textContent = '數據已清除。請重新開始追蹤。';
                 rSquaredDisplay.textContent = '';
                 regressionCoeffs = [0, 0, 0];
-
                 drawCurrentFrame();
                 undoBtn.disabled = true;
-                
                 resetClearButton();
                 clearDataBtn.disabled = true;
                 exportBtn.disabled = true;
@@ -821,7 +903,6 @@
             if (trackedData.length > 0) {
                 const currentTime = videoPlayer.currentTime.toFixed(3);
                 const indexToRemove = trackedData.findIndex(p => p.time.toFixed(3) === currentTime);
-
                 if (indexToRemove !== -1) {
                     trackedData.splice(indexToRemove, 1);
                     calculateDerivedData(trackedData); 
@@ -829,7 +910,6 @@
                 } else {
                     showMessage("當前畫面未找到可撤銷的追蹤點。");
                 }
-
                 drawCurrentFrame();
                 if (trackedData.length === 0) {
                     undoBtn.disabled = true;
@@ -862,26 +942,21 @@
         function calculateDerivedData(data) {
             data.forEach(p => { p.v_real = null; p.a_real = null; });
             if (data.length < 3) return;
-
             for (let i = 1; i < data.length - 1; i++) {
                 const y_prev = data[i - 1].y_real;
                 const y_next = data[i + 1].y_real;
                 const t_prev = data[i - 1].time;
                 const t_next = data[i + 1].time;
-
                 if (t_next > t_prev) {
                     data[i].v_real = (y_next - y_prev) / (t_next - t_prev);
                 }
             }
-
             if (data.length < 5) return;
-            
             for (let i = 2; i < data.length - 2; i++) {
                  const v_prev = data[i - 1].v_real;
                  const v_next = data[i + 1].v_real;
                  const t_prev = data[i - 1].time;
                  const t_next = data[i + 1].time;
-                 
                  if (v_prev !== null && v_next !== null && t_next > t_prev) {
                      data[i].a_real = (v_next - v_prev) / (t_next - t_prev);
                  }
@@ -892,7 +967,6 @@
             if (data.length < 3) return [0, 0, 0];
             let n = data.length;
             let sum_t = 0, sum_y = 0, sum_t2 = 0, sum_t3 = 0, sum_t4 = 0, sum_yt = 0, sum_yt2 = 0;
-
             for (let i = 0; i < n; i++) {
                 let t = data[i].time;
                 let y = data[i].y_real;
@@ -901,17 +975,13 @@
                 let t4 = t3 * t;
                 sum_t += t; sum_y += y; sum_t2 += t2; sum_t3 += t3; sum_t4 += t4; sum_yt += y * t; sum_yt2 += y * t2;
             }
-
             const a = [[sum_t4, sum_t3, sum_t2], [sum_t3, sum_t2, sum_t], [sum_t2, sum_t, n]];
             const b = [sum_yt2, sum_yt, sum_y];
-            
             const D = a[0][0]*(a[1][1]*a[2][2] - a[1][2]*a[2][1]) - a[0][1]*(a[1][0]*a[2][2] - a[1][2]*a[2][0]) + a[0][2]*(a[1][0]*a[2][1] - a[1][1]*a[2][0]);
             if (D === 0) return [0, 0, 0];
-
             const Da = b[0]*(a[1][1]*a[2][2] - a[1][2]*a[2][1]) - a[0][1]*(b[1]*a[2][2] - a[1][2]*b[2]) + a[0][2]*(b[1]*a[2][1] - a[1][1]*b[2]);
             const Db = a[0][0]*(b[1]*a[2][2] - a[1][2]*b[2]) - b[0]*(a[1][0]*a[2][2] - a[1][2]*a[2][0]) + a[0][2]*(a[1][0]*b[2] - b[1]*a[2][0]);
             const Dc = a[0][0]*(a[1][1]*b[2] - b[1]*a[2][1]) - a[0][1]*(a[1][0]*b[2] - b[1]*a[2][0]) + b[0]*(a[1][0]*a[2][1] - a[1][1]*a[2][0]);
-            
             return [Da / D, Db / D, Dc / D];
         }
 
@@ -957,11 +1027,9 @@
                  regressionCoeffs = [0, 0, 0];
                  return;
             }
-
             const unit = document.getElementById('unit-select').value;
             const ctx = document.getElementById('position-time-chart').getContext('2d');
             const showRegression = regressionCheckbox.checked;
-
             const positionData = trackedData.map(p => ({ x: p.time, y: p.y_real }));
             let datasets = [{
                 label: '追蹤位置數據',
@@ -970,17 +1038,13 @@
                 pointRadius: 6,
                 type: 'scatter'
             }];
-            
             rSquaredDisplay.textContent = '';
-            
             if (showRegression && trackedData.length >= 3) {
                 regressionCoeffs = quadraticRegression(trackedData);
                 const [A, B, C] = regressionCoeffs;
                 const rSquared = calculateRSquared(trackedData, regressionCoeffs);
                 const regressionPoints = generateRegressionData(trackedData, regressionCoeffs);
-                
                 const formulaLabel = `二次迴歸 (y = ${A.toFixed(3)}t² + ${B.toFixed(3)}t + ${C.toFixed(3)})`;
-
                 datasets.push({
                     label: formulaLabel,
                     data: regressionPoints,
@@ -995,9 +1059,7 @@
             } else {
                  regressionCoeffs = [0, 0, 0];
             }
-
             if (positionTimeChart) positionTimeChart.destroy();
-
             positionTimeChart = new Chart(ctx, {
                 data: { datasets: datasets },
                 options: {
@@ -1017,15 +1079,12 @@
                 if (velocityTimeChart) velocityTimeChart.destroy();
                 return;
             }
-
             const unit = document.getElementById('unit-select').value;
             const ctx = document.getElementById('velocity-time-chart').getContext('2d');
             const [A, B] = regressionCoeffs; 
-
             const startTime = trackedData[0].time;
             const endTime = trackedData[trackedData.length - 1].time;
             const step = (endTime - startTime) / 100;
-
             const velocityRegressionPoints = [];
             for (let t = startTime; t <= endTime; t += step) {
                 const v = 2 * A * t + B;
@@ -1035,9 +1094,7 @@
                  const v = 2 * A * endTime + B;
                  velocityRegressionPoints.push({ x: endTime, y: v });
             }
-            
             if (velocityTimeChart) velocityTimeChart.destroy();
-
             velocityTimeChart = new Chart(ctx, {
                 data: {
                     datasets: [{
@@ -1068,21 +1125,17 @@
                 if (accelerationTimeChart) accelerationTimeChart.destroy();
                 return;
             }
-
             const unit = document.getElementById('unit-select').value;
             const ctx = document.getElementById('acceleration-time-chart').getContext('2d');
             const [A] = regressionCoeffs;
             const accelerationValue = 2 * A;
             const startTime = trackedData[0].time;
             const endTime = trackedData[trackedData.length - 1].time;
-
             const accelerationRegressionPoints = [
                 { x: startTime, y: accelerationValue },
                 { x: endTime, y: accelerationValue }
             ];
-
             if (accelerationTimeChart) accelerationTimeChart.destroy();
-
             accelerationTimeChart = new Chart(ctx, {
                 data: {
                     datasets: [{
